@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# HPGL parser, path manipulation, and optimization library.
+# Coordinates are in HPGL machine units throughout (convert with mm2hpgl/hpgl2mm).
 from __future__ import annotations
 
 import re
@@ -12,11 +14,11 @@ Path = list[Point]
 HPGL_GOTO = "PU%s,%s;"
 HPGL_CUTTO = "PD%s,%s;"
 HPGL_CUTTO_STR = "PD%s;"
-HPGL_INIT = "IN:;"
+HPGL_INIT = "IN:;"          # colon variant for Cogi compatibility; parser accepts both IN and IN:
 HPGL_SELECT_PEN = "SP%s;"
 HPGL_PEN_ABSOLUTE = "PA;"
 
-
+# HPGL standard: 1016 machine units per inch (≈ 40 units/mm).
 def mm2hpgl(value: float) -> float:
     return value / 25.4 * 1016.0
 
@@ -39,7 +41,7 @@ def vecAngle(a: Point, b: Point, c: Point) -> float:
     if a == c:
         return 0
     r = vecDot(v0, v1) / (vecLen(v0) * vecLen(v1))
-    if r >= -1 and r <= 1:
+    if r >= -1 and r <= 1:  # clamp before acos: floating-point errors can push r slightly outside [-1, 1]
         return math.acos(r)
     return math.pi
 
@@ -212,6 +214,10 @@ class HPGL:
         return ((min_x, min_y), (max_x, max_y))
 
     def bladeOffset(self, offset: float) -> None:
+        # A rotating knife blade trails behind its pivot by `offset` mm.
+        # At each sharp corner we extend the incoming segment past the corner
+        # and start the outgoing segment slightly ahead of it, giving the blade
+        # time to swing into the new direction before cutting begins.
         hpgl_offset = mm2hpgl(offset)
 
         def _blade_offset(path):
@@ -219,7 +225,7 @@ class HPGL:
             new_path.append(path[0])
             for prev, cur, next in zip(path[:-2], path[1:-1], path[2:]):
                 angle = vecAngle(prev, cur, next)
-                if angle < math.pi / 1.1:
+                if angle < math.pi / 1.1:  # ~164°: only correct at meaningful corners; near-straight angles need no adjustment
                     d2 = vecDist(cur, next)
                     ext2 = (4 * hpgl_offset) / d2
                     if ext2 <= 1.0:
@@ -236,7 +242,9 @@ class HPGL:
         self.operate(_blade_offset)
 
     def optimize(self) -> None:
-        """Removes points with the same coordinate and unecesary points on a straight line"""
+        # Two-pass: first remove duplicates/subpixel points (required so the
+        # collinearity check in pass 2 doesn't fail on zero-length segments),
+        # then drop points that lie exactly on a straight line between neighbours.
         def _optimize(path):
             new_path = []
             last = None
@@ -283,6 +291,9 @@ class HPGL:
         self.operate(_optimize)
 
     def optimizeCut(self, offset: float) -> None:
+        # For closed paths, reposition the start/end seam to the midpoint of the
+        # longest segment.  This gives the blade maximum run-up before reaching
+        # the seam and a clean overcut exit, minimising the visible join mark.
         hpgl_offset = mm2hpgl(offset) * 2
         operations = []
 
@@ -437,7 +448,7 @@ class HPGL:
             hpgl += HPGL_GOTO % goto
             hpgl += HPGL_CUTTO_STR % route
         hpgl += HPGL_GOTO % (0, 0)
-        hpgl += HPGL_SELECT_PEN % 0
+        hpgl += HPGL_SELECT_PEN % 0  # SP0 twice: some plotters only retract the blade/pen on the second command
         hpgl += HPGL_SELECT_PEN % 0
         return hpgl
 
@@ -447,6 +458,8 @@ class HPGL:
 
     def rerouteNearest(self, xweight: float = 1, yweight: float = 2,
                        pathfn: Callable[[Path], tuple[Point, Point]] = path_center) -> None:
+        # Greedy nearest-neighbour reorder. yweight=2 by default because the
+        # plotter carriage moves faster along X, so Y travel costs more time.
         last_p = (0, 0)
         paths = self.getPaths()
         self.routes = []
@@ -470,6 +483,9 @@ class HPGL:
 
     def rerouteXY(self, rowsize: int = 600,
                   pathfn: Callable[[Path], tuple[Point, Point]] = path_start_stop) -> None:
+        # Boustrophedon (snake) order: sort paths into horizontal rows, then
+        # alternate row direction so the pen reverses rather than returning to
+        # the start of each row, minimising total pen-up travel.
         min_xy, max_xy = self.getBoundingBox()
         x, y = max_xy
         _, min_y = min_xy

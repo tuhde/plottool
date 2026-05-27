@@ -13,10 +13,9 @@ HPGL2MM = hpgl.hpgl2mm(1)
 
 
 def XYPlotterScale(center):
-    """
-    Simulate Plotter axis
-    """
-    # center gets ignored in this case
+    # Invert the Y axis so the canvas matches HPGL coordinates (Y increases
+    # upward), rather than screen coordinates (Y increases downward).
+    # center is unused; FloatCanvas requires this signature.
     return (-1.0, 1.0)
 
 
@@ -76,11 +75,12 @@ class HPGLPreview(wx.Frame):
 
     def ShowModal(self):
         if hasattr(self, "MakeModal"):
-            self.MakeModal()
+            self.MakeModal()  # removed in wxPython 4.x; present on older versions
         self.Show()
         self.Canvas.Canvas.ZoomToBB()
 
-        # now to stop execution start a event loop
+        # wx.Frame has no native modal loop; run a GUIEventLoop manually to
+        # block the caller until OnClose exits it (simulating a modal dialog).
         self.eventLoop = wx.GUIEventLoop()
         self.eventLoop.Run()
         self.Destroy()

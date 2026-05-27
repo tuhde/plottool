@@ -81,9 +81,11 @@ try:
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
         bytesize=serial.EIGHTBITS,
-        rtscts=True,
-        dsrdtr=True
+        rtscts=True,   # hardware flow control is essential: the plotter has a small
+        dsrdtr=True    # input buffer and will silently drop data without RTS/CTS throttling
     ) as port:
+        # Send one command at a time; pyserial blocks on write() when the
+        # plotter asserts CTS-not-ready, so flow control handles throttling.
         splitted = HPGLdata.split(";")
         total = len(splitted)
 
