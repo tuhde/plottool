@@ -30,6 +30,17 @@ class HPGLPreview(wx.Frame):
 
         self.Canvas = NavCanvas.NavCanvas(self, -1, ProjectionFun=XYPlotterScale, BackgroundColor="white")
         self.sizer.Add(self.Canvas, 1, wx.ALL | wx.EXPAND)
+
+        w, h = hpgldata.getSize()
+        travel, draw = hpgldata.getLength()
+        n_paths = len(hpgldata.getPaths())
+        summary = (
+            "Size: {:.1f} × {:.1f} mm  |  Area: {:.1f} cm²  |  "
+            "Paths: {}  |  Cut: {:.1f} cm  |  Travel: {:.1f} cm"
+        ).format(w, h, w / 10 * h / 10, n_paths, draw / 10, travel / 10)
+        self.summary_label = wx.StaticText(self, label=summary, style=wx.ALIGN_CENTER)
+        self.sizer.Add(self.summary_label, 0, wx.ALL | wx.EXPAND, 4)
+
         self.bsizer = wx.BoxSizer(wx.HORIZONTAL)
         if dialog:
             self.btn_ok = wx.Button(self, wx.ID_OK, label="OK")
