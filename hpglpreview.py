@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import wx
 from wx.lib.floatcanvas import FloatCanvas, GUIMode
 import hpgl
@@ -25,6 +26,7 @@ class HPGLPreview(wx.Frame):
     def __init__(self, hpgldata, title="HPGL preview", size=(1200, 700), dialog=False, *args, **kwargs):
         super(HPGLPreview, self).__init__(parent=None, title=title, size=size, *args, **kwargs)
         self.checked = False
+        self._hpgl_paths = list(hpgldata.getPaths())
         self.CreateStatusBar()
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -53,6 +55,12 @@ class HPGLPreview(wx.Frame):
         ).format(w, h, w / 10 * h / 10, n_paths, draw / 10, travel / 10)
         self.summary_label = wx.StaticText(self, label=summary, style=wx.ALIGN_CENTER)
         self.sizer.Add(self.summary_label, 0, wx.ALL | wx.EXPAND, 4)
+
+        hpgl_row = wx.BoxSizer(wx.HORIZONTAL)
+        hpgl_row.Add(wx.StaticText(self, label="Path HPGL:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+        self.hpgl_field = wx.TextCtrl(self, style=wx.TE_READONLY | wx.TE_PROCESS_ENTER, size=(-1, -1))
+        hpgl_row.Add(self.hpgl_field, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 4)
+        self.sizer.Add(hpgl_row, 0, wx.ALL | wx.EXPAND, 2)
 
         self.bsizer = wx.BoxSizer(wx.HORIZONTAL)
         if dialog:
@@ -87,8 +95,42 @@ class HPGLPreview(wx.Frame):
 
         # EVT_MOTION is also bound internally by FloatCanvas; event.Skip() lets that run too.
         self.Canvas.Bind(wx.EVT_MOTION, self.OnMove)
+        self.Canvas.Bind(wx.EVT_RIGHT_DOWN, self.OnCanvasRightClick)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Bind(wx.EVT_CHAR_HOOK, self.OnKeyDown)
+
+    def _segment_dist(self, px, py, ax, ay, bx, by):
+        """Minimum distance from point (px,py) to segment (ax,ay)-(bx,by)."""
+        dx, dy = bx - ax, by - ay
+        if dx == 0 and dy == 0:
+            return math.hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+        return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+    def _nearest_path_index(self, wx_coord, wy_coord):
+        best_idx, best_dist = 0, float('inf')
+        for i, path in enumerate(self._hpgl_paths):
+            for j in range(len(path) - 1):
+                d = self._segment_dist(wx_coord, wy_coord,
+                                       path[j][0], path[j][1],
+                                       path[j + 1][0], path[j + 1][1])
+                if d < best_dist:
+                    best_dist, best_idx = d, i
+        return best_idx
+
+    @staticmethod
+    def _path_to_hpgl(path):
+        first = path[0]
+        rest = path[1:]
+        coords = ",".join("{:d},{:d}".format(int(round(x)), int(round(y))) for x, y in rest)
+        return "PU{:d},{:d};PD{};".format(int(round(first[0])), int(round(first[1])), coords)
+
+    def OnCanvasRightClick(self, event):
+        world = self.Canvas.PixelToWorld(event.GetPosition())
+        idx = self._nearest_path_index(world[0], world[1])
+        self.hpgl_field.SetValue(self._path_to_hpgl(self._hpgl_paths[idx]))
+        self.hpgl_field.SelectAll()
+        event.Skip()
 
     def OnKeyDown(self, event):
         key = event.GetKeyCode()
