@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-
 import wx
-from wx.lib.floatcanvas import NavCanvas, FloatCanvas
+from wx.lib.floatcanvas import FloatCanvas, GUIMode
 import hpgl
 import numpy
 
@@ -10,6 +9,7 @@ import numpy
 FloatCanvas.float_ = numpy.float64
 
 HPGL2MM = hpgl.hpgl2mm(1)
+ZOOM_FACTOR = 1.3
 
 
 def XYPlotterScale(center):
@@ -28,9 +28,21 @@ class HPGLPreview(wx.Frame):
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
 
-        self.Canvas = NavCanvas.NavCanvas(self, -1, ProjectionFun=XYPlotterScale, BackgroundColor="white")
+        # Toolbar: zoom in/out and fit-to-view.
+        # Pan is always active via left-drag (GUIMove mode), so no pan button needed.
+        # Wheel zoom is also always active because GUIMove inherits ZoomWithMouseWheel.
+        tb = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_zoom_in  = wx.Button(self, label="+",   size=(30, 28))
+        self.btn_zoom_out = wx.Button(self, label="−",   size=(30, 28))
+        self.btn_fit      = wx.Button(self, label="Fit", size=(40, 28))
+        for btn in (self.btn_zoom_in, self.btn_zoom_out, self.btn_fit):
+            tb.Add(btn, 0, wx.LEFT | wx.TOP | wx.BOTTOM, 2)
+        self.sizer.Add(tb, 0, wx.ALL, 0)
+
+        self.Canvas = FloatCanvas.FloatCanvas(self, -1, ProjectionFun=XYPlotterScale, BackgroundColor="white")
         self.sizer.Add(self.Canvas, 1, wx.ALL | wx.EXPAND)
 
+        # summary bar
         w, h = hpgldata.getSize()
         travel, draw = hpgldata.getLength()
         n_paths = len(hpgldata.getPaths())
@@ -57,16 +69,23 @@ class HPGLPreview(wx.Frame):
 
         last = (0, 0)
         for line in hpgldata.getPaths():
-            self.Canvas.Canvas.AddLine(line)
-
-            self.Canvas.Canvas.AddLine([last, line[0]], LineColor="blue")
+            self.Canvas.AddLine(line)
+            self.Canvas.AddLine([last, line[0]], LineColor="blue")
             last = line[-1]
-        self.Canvas.Canvas.AddLine([last, (0, 0)], LineColor="green")
+        self.Canvas.AddLine([last, (0, 0)], LineColor="green")
         m, mm = hpgldata.getBoundingBox()
+        self.Canvas.AddRectangle((0, 0), (mm[0] + m[0], mm[1] + m[1]), LineColor="orange")
 
-        self.Canvas.Canvas.AddRectangle((0, 0), (mm[0] + m[0], mm[1] + m[1]), LineColor="orange")
+        # GUIMove: left-drag pans, mouse wheel zooms (via ZoomWithMouseWheel mixin).
+        # No additional bindings needed for either behaviour.
+        self.Canvas.SetMode(GUIMode.GUIMove())
 
-        self.Canvas.Canvas.Bind(wx.EVT_MOTION, self.OnMove)
+        self.btn_zoom_in.Bind(wx.EVT_BUTTON,  lambda e: self.Canvas.Zoom(ZOOM_FACTOR))
+        self.btn_zoom_out.Bind(wx.EVT_BUTTON, lambda e: self.Canvas.Zoom(1.0 / ZOOM_FACTOR))
+        self.btn_fit.Bind(wx.EVT_BUTTON,      lambda e: self.Canvas.ZoomToBB())
+
+        # EVT_MOTION is also bound internally by FloatCanvas; event.Skip() lets that run too.
+        self.Canvas.Bind(wx.EVT_MOTION, self.OnMove)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Bind(wx.EVT_CHAR_HOOK, self.OnKeyDown)
 
@@ -87,7 +106,7 @@ class HPGLPreview(wx.Frame):
         self.Close()
 
     def OnMove(self, event):
-        coords = self.Canvas.Canvas.PixelToWorld(event.GetPosition())
+        coords = self.Canvas.PixelToWorld(event.GetPosition())
         self.SetStatusText("%.2f mm, %.2f mm" % (coords[0] * HPGL2MM, coords[1] * HPGL2MM))
         event.Skip()
 
@@ -98,7 +117,7 @@ class HPGLPreview(wx.Frame):
         if hasattr(self, "MakeModal"):
             self.MakeModal()  # removed in wxPython 4.x; present on older versions
         self.Show()
-        self.Canvas.Canvas.ZoomToBB()
+        self.Canvas.ZoomToBB()
 
         # wx.Frame has no native modal loop; run a GUIEventLoop manually to
         # block the caller until OnClose exits it (simulating a modal dialog).
