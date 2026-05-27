@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plottool"
+version = "0.1.0"
+description = "HPGL plotter/cutter tool with serial port support"
+authors = [{ name = "doommaster" }]
+requires-python = ">=3.7"
+dependencies = [
+    "pyserial",
+    "numpy",
+    "wxPython",
+]
+

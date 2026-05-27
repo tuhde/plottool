@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+__author__ = "doommaster"
+
 import sys
 import argparse
-from hpgl import HPGL
+from hpgl import HPGL, apply_args
 try:
     import serial
-except:
+except ImportError:
     print("You need to install pyserial. "
           "On Debian/Ubuntu try "
           "sudo apt-get install python3-serial")
-    exit(1)
+    sys.exit(1)
 
 
 parser = argparse.ArgumentParser(description="Process all arguments ")
@@ -25,53 +27,13 @@ args = parser.parse_args()
 
 try:
     HPGLinput = HPGL(args.file)
-except:
+except Exception:
     print("no/wrong/empty file given in argument.")
     print("")
     raise
 
 
-# do optimize stuff:
-blade_optimize = False
-optimize = False
-reroute = False
-rotate180 = False
-mirror = False
-margin = 5
-
-if args.mirror:
-    mirror = True
-
-if args.magic:
-    blade_optimize = True
-    reroute = True
-    optimize = True
-    rotate180 = True
-
-if args.width is not None:
-    HPGLinput.scaleToWidth(args.width)
-
-if args.pen:
-    blade_optimize = False
-
-if rotate180:
-    HPGLinput.mirrorX()
-    HPGLinput.mirrorY()
-
-if mirror:
-    HPGLinput.mirrorX()
-
-if optimize:
-    HPGLinput.optimize()
-    HPGLinput.fit()
-
-if blade_optimize:
-    HPGLinput.optimizeCut(0.25)
-    HPGLinput.bladeOffset(0.25)
-
-if reroute:
-    HPGLinput.rerouteXY()
-
+apply_args(HPGLinput, args)
 
 print("Plotting file: " + args.file)
 w, h = HPGLinput.getSize()
@@ -87,14 +49,14 @@ try:
         app = wx.App(False)
         dialog = hpglpreview.HPGLPreview(HPGLinput, dialog=True)
         if not dialog.ShowModal():
-            exit(1)
+            sys.exit(1)
         cont = 'y'
     else:
         cont = input("continue? (y/n) ")
 except KeyboardInterrupt:
-    exit(0)
+    sys.exit(0)
 if cont != "y":
-    exit(0)
+    sys.exit(0)
 
 print("Using port: {}".format(args.port))
 
@@ -128,5 +90,3 @@ try:
     sys.stdout.write("\n")
 except serial.serialutil.SerialException:
     print("Failed to open port {}.".format(args.port))
-
-__author__ = "doommaster"

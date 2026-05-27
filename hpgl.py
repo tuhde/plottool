@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import re
 import math
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Optional
 
+
+Point = tuple[float, float]
+Path = list[Point]
 
 HPGL_GOTO = "PU%s,%s;"
 HPGL_CUTTO = "PD%s,%s;"
@@ -13,23 +17,23 @@ HPGL_SELECT_PEN = "SP%s;"
 HPGL_PEN_ABSOLUTE = "PA;"
 
 
-def mm2hpgl(value):
+def mm2hpgl(value: float) -> float:
     return value / 25.4 * 1016.0
 
 
-def hpgl2mm(value):
+def hpgl2mm(value: float) -> float:
     return round(value, 0) / 1016.0 * 25.4
 
 
-def vecDot(a, b):
+def vecDot(a: Point, b: Point) -> float:
     return sum(map(lambda i: i[0] * i[1], zip(a, b)))
 
 
-def vecLen(a):
+def vecLen(a: Point) -> float:
     return math.sqrt(vecDot(a, a))
 
 
-def vecAngle(a, b, c):
+def vecAngle(a: Point, b: Point, c: Point) -> float:
     v0 = (a[0] - b[0], a[1] - b[1])
     v1 = (c[0] - b[0], c[1] - b[1])
     if a == c:
@@ -40,11 +44,11 @@ def vecAngle(a, b, c):
     return math.pi
 
 
-def vecDist(a, b):
+def vecDist(a: Point, b: Point) -> float:
     return vecLen((a[0] - b[0], a[1] - b[1]))
 
 
-def vecExtend(a, b, x):
+def vecExtend(a: Point, b: Point, x: float) -> Point:
     return a[0] + x * (b[0] - a[0]), a[1] + x * (b[1] - a[1])
 
 
@@ -85,13 +89,11 @@ def hpgl_select_pen(match):
     return HPGL_SELECT_PEN, (pen,)
 
 
-def path_start_stop(path):
-    start = path[0]
-    stop = path[-1]
-    return start, stop
+def path_start_stop(path: Path) -> tuple[Point, Point]:
+    return path[0], path[-1]
 
 
-def path_center(path):
+def path_center(path: Path) -> tuple[Point, Point]:
     xvals, yvals = zip(*path)
     max_x = max(xvals)
     max_y = max(yvals)
@@ -102,12 +104,12 @@ def path_center(path):
     return start, start
 
 
-def path_median(path):
+def path_median(path: Path) -> tuple[Point, Point]:
     xvals, yvals = zip(*path)
     min_x = min(xvals)
     min_y = min(yvals)
-    xvals = map(lambda x: x - min_x, xvals)
-    yvals = map(lambda y: y - min_y, yvals)
+    xvals = list(map(lambda x: x - min_x, xvals))
+    yvals = list(map(lambda y: y - min_y, yvals))
     xmedian = sorted(xvals)[int(math.ceil(len(xvals) // 2))]
     ymedian = sorted(yvals)[int(math.ceil(len(yvals) // 2))]
 
@@ -115,12 +117,12 @@ def path_median(path):
     return start, start
 
 
-def path_mean(path):
+def path_mean(path: Path) -> tuple[Point, Point]:
     xvals, yvals = zip(*path)
     min_x = min(xvals)
     min_y = min(yvals)
-    xvals = map(lambda x: x - min_x, xvals)
-    yvals = map(lambda y: y - min_y, yvals)
+    xvals = list(map(lambda x: x - min_x, xvals))
+    yvals = list(map(lambda y: y - min_y, yvals))
     xmean = sum(xvals) / len(xvals)
     ymean = sum(yvals) / len(yvals)
 
@@ -139,12 +141,13 @@ HPGL_CMDS = {
 
 
 class HPGL:
-    def __init__(self, fn):
-        self.routes = []
+    def __init__(self, fn: Optional[str]) -> None:
+        self.routes: list[Path] = []
         if fn:
-            self.parse(open(fn).read())
+            with open(fn) as f:
+                self.parse(f.read())
 
-    def parse(self, hpgldata):
+    def parse(self, hpgldata: str) -> None:
         commands = hpgldata.split(";")
         routes = []
         path = []
@@ -186,10 +189,10 @@ class HPGL:
                 routes.append(path)
         self.routes = routes
 
-    def getPaths(self):
+    def getPaths(self) -> list[Path]:
         return self.routes
 
-    def getBoundingBox(self):
+    def getBoundingBox(self) -> tuple[Point, Point]:
         max_x = None
         max_y = None
         min_x = None
@@ -208,7 +211,7 @@ class HPGL:
 
         return ((min_x, min_y), (max_x, max_y))
 
-    def bladeOffset(self, offset):
+    def bladeOffset(self, offset: float) -> None:
         hpgl_offset = mm2hpgl(offset)
 
         def _blade_offset(path):
@@ -228,12 +231,11 @@ class HPGL:
                         new_path.append(cur)
                 else:
                     new_path.append(cur)
-            d = vecDist(path[-2], path[-1])
             new_path.append(path[-1])
             return new_path
         self.operate(_blade_offset)
 
-    def optimize(self):
+    def optimize(self) -> None:
         """Removes points with the same coordinate and unecesary points on a straight line"""
         def _optimize(path):
             new_path = []
@@ -280,7 +282,7 @@ class HPGL:
             last = path[-1]
         self.operate(_optimize)
 
-    def optimizeCut(self, offset):
+    def optimizeCut(self, offset: float) -> None:
         hpgl_offset = mm2hpgl(offset) * 2
         operations = []
 
@@ -306,7 +308,7 @@ class HPGL:
 
         self.operate(_optimizeCut)
 
-    def operate(self, fn):
+    def operate(self, fn: Callable[[Path], Optional[Path]]) -> None:
         routes = []
         for path in self.routes:
             result = fn(path)
@@ -314,23 +316,23 @@ class HPGL:
                 routes.append(result)
         self.routes = routes
 
-    def operateXY(self, fn):
+    def operateXY(self, fn: Callable[[float, float], Point]) -> None:
         self.operate(lambda path: list(map(lambda xy: fn(xy[0], xy[1]), path)))
 
-    def move(self, xoffset, yoffset):
+    def move(self, xoffset: float, yoffset: float) -> None:
         self.operateXY(lambda x, y: (x + xoffset, y + yoffset))
 
-    def scale(self, xfactor, yfactor=None):
+    def scale(self, xfactor: float, yfactor: Optional[float] = None) -> None:
         if yfactor is None:
             yfactor = xfactor
         self.operateXY(lambda x, y: (x * xfactor, y * yfactor))
 
-    def fit(self):
+    def fit(self) -> None:
         min_xy, max_xy = self.getBoundingBox()
         x, y = min_xy
         self.move(-x, -y)
 
-    def scaleToWidth(self, width):
+    def scaleToWidth(self, width: float) -> None:
         new_width = mm2hpgl(width)
 
         self.fit()
@@ -339,7 +341,7 @@ class HPGL:
         factor = new_width / float(x)
         self.scale(factor)
 
-    def exportSVG(self, filename):
+    def exportSVG(self, filename: str) -> None:
         _, max_xy = self.getBoundingBox()
         x, y = max_xy
         svg = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -372,26 +374,27 @@ class HPGL:
             svg += "\"></path>\n"
         svg += "<path style=\"stroke:#0000ff;stroke-opacity:.8;fill:none;stroke-width:0.1;\" d=\"M %.3f,%.3f L %.3f,%.3f\"></path>\n" % tuple(map(hpgl2mm, (last_x, last_y, 0, 0)))
         svg += "</svg>"
-        open(filename, "w").write(svg)
+        with open(filename, "w") as f:
+            f.write(svg)
 
-    def mirrorX(self):
+    def mirrorX(self) -> None:
         min_xy, max_xy = self.getBoundingBox()
         self.scale(-1, 1)
         self.move(max_xy[0], 0)
 
-    def mirrorY(self):
+    def mirrorY(self) -> None:
         min_xy, max_xy = self.getBoundingBox()
         self.scale(1, -1)
         self.move(0, max_xy[1])
 
-    def addMargin(self, x, y):
+    def addMargin(self, x: float, y: float) -> None:
         self.move(mm2hpgl(x), mm2hpgl(y))
 
-    def getSize(self):
-        _, max_xy = self.getBoundingBox()
-        return tuple(map(hpgl2mm, max_xy))
+    def getSize(self) -> tuple[float, float]:
+        min_xy, max_xy = self.getBoundingBox()
+        return tuple(map(hpgl2mm, (max_xy[0] - min_xy[0], max_xy[1] - min_xy[1])))
 
-    def getLength(self):
+    def getLength(self) -> tuple[float, float]:
         movement = 0
         draw = 0
         last = (0, 0)
@@ -402,7 +405,7 @@ class HPGL:
         movement += vecDist(last, (0, 0))
         return hpgl2mm(movement), hpgl2mm(draw)
 
-    def multiplyX(self, delta, m=2):
+    def multiplyX(self, delta: float, m: int = 2) -> None:
         if m < 2:
             return
         deltaHPGL = mm2hpgl(delta)
@@ -413,7 +416,7 @@ class HPGL:
             self.move(x + deltaHPGL, 0)
             self.routes = original + self.routes
 
-    def multiplyY(self, delta, m=2):
+    def multiplyY(self, delta: float, m: int = 2) -> None:
         if m < 2:
             return
         deltaHPGL = mm2hpgl(delta)
@@ -424,35 +427,26 @@ class HPGL:
             self.move(0, y + deltaHPGL)
             self.routes = original + self.routes
 
-    def getHPGL(self):
+    def getHPGL(self) -> str:
         hpgl = HPGL_INIT
         hpgl += HPGL_PEN_ABSOLUTE
         for route in self.routes:
-            first = True
             route = tuple(map(lambda a: tuple(map(lambda b: int(round(b, 0)), a)), route))
             goto = route[0]
             route = ",".join(map(lambda a: "%d,%d" % a, route[1:]))
             hpgl += HPGL_GOTO % goto
             hpgl += HPGL_CUTTO_STR % route
-            continue
-            exit()
-            for x, y in route:
-                x = int(round(x, 0))
-                y = int(round(y, 0))
-                if first:
-                    first = False
-                    hpgl += HPGL_GOTO % (x, y)
-                else:
-                    hpgl += HPGL_CUTTO % (x, y)
         hpgl += HPGL_GOTO % (0, 0)
         hpgl += HPGL_SELECT_PEN % 0
         hpgl += HPGL_SELECT_PEN % 0
         return hpgl
 
-    def exportHPGL(self, filename):
-        open(filename, "w").write(self.getHPGL())
+    def exportHPGL(self, filename: str) -> None:
+        with open(filename, "w") as f:
+            f.write(self.getHPGL())
 
-    def rerouteNearest(self, xweight=1, yweight=2, pathfn=path_center):
+    def rerouteNearest(self, xweight: float = 1, yweight: float = 2,
+                       pathfn: Callable[[Path], tuple[Point, Point]] = path_center) -> None:
         last_p = (0, 0)
         paths = self.getPaths()
         self.routes = []
@@ -462,7 +456,7 @@ class HPGL:
         while paths:
             for path in paths:
                 path_start, path_stop = pathfn(path)
-                d = math. sqrt(((path_start[0] - last_p[0]) * xweight) ** 2 + ((path_start[1] - last_p[1]) * yweight) ** 2)
+                d = math.sqrt(((path_start[0] - last_p[0]) * xweight) ** 2 + ((path_start[1] - last_p[1]) * yweight) ** 2)
                 if distance is None or distance > d:
                     distance = d
                     next_path = path
@@ -474,7 +468,8 @@ class HPGL:
                 next_path = None
                 distance = None
 
-    def rerouteXY(self, rowsize=600, pathfn=path_start_stop):
+    def rerouteXY(self, rowsize: int = 600,
+                  pathfn: Callable[[Path], tuple[Point, Point]] = path_start_stop) -> None:
         min_xy, max_xy = self.getBoundingBox()
         x, y = max_xy
         _, min_y = min_xy
@@ -493,6 +488,44 @@ class HPGL:
                 reverse = not reverse
 
 
+def apply_args(hpgl_obj: HPGL, args) -> None:
+    blade_optimize = False
+    optimize = False
+    reroute = False
+    rotate180 = False
+    mirror = args.mirror
+
+    if args.magic:
+        blade_optimize = True
+        reroute = True
+        optimize = True
+        rotate180 = True
+
+    if args.width is not None:
+        hpgl_obj.scaleToWidth(args.width)
+
+    if getattr(args, 'pen', False):
+        blade_optimize = False
+
+    if rotate180:
+        hpgl_obj.mirrorX()
+        hpgl_obj.mirrorY()
+
+    if mirror:
+        hpgl_obj.mirrorX()
+
+    if optimize:
+        hpgl_obj.optimize()
+        hpgl_obj.fit()
+
+    if blade_optimize:
+        hpgl_obj.optimizeCut(0.25)
+        hpgl_obj.bladeOffset(0.25)
+
+    if reroute:
+        hpgl_obj.rerouteXY()
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser("HPGL modification/optimization tool")
@@ -506,47 +539,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     HPGLinput = HPGL(args.file)
-
-    # do optimize stuff:
-    blade_optimize = False
-    optimize = False
-    reroute = False
-    rotate180 = False
-    mirror = False
-    margin = 5
-
-    if args.mirror:
-        mirror = True
-
-    if args.magic:
-        blade_optimize = True
-        reroute = True
-        optimize = True
-        rotate180 = True
-
-    if args.width is not None:
-        HPGLinput.scaleToWidth(args.width)
-
-    if args.pen:
-        blade_optimize = False
-
-    if rotate180:
-        HPGLinput.mirrorX()
-        HPGLinput.mirrorY()
-
-    if mirror:
-        HPGLinput.mirrorX()
-
-    if optimize:
-        HPGLinput.optimize()
-        HPGLinput.fit()
-
-    if blade_optimize:
-        HPGLinput.optimizeCut(0.25)
-        HPGLinput.bladeOffset(0.25)
-
-    if reroute:
-        HPGLinput.rerouteXY()
+    apply_args(HPGLinput, args)
 
     if args.preview is not None:
         HPGLinput.exportSVG(args.preview)

@@ -67,9 +67,9 @@ class HPGLPreview(wx.Frame):
         self.Close()
 
     def OnMove(self, event):
-        x = event.x * HPGL2MM
-        y = event.y * HPGL2MM
-        self.SetStatusText("%.2f mm, %.2f mm" % (x, y))
+        coords = self.Canvas.Canvas.PixelToWorld(event.GetPosition())
+        self.SetStatusText("%.2f mm, %.2f mm" % (coords[0] * HPGL2MM, coords[1] * HPGL2MM))
+        event.Skip()
 
     def OnClose(self, event):
         self.eventLoop.Exit()
