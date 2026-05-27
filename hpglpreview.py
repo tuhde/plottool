@@ -95,6 +95,12 @@ class HPGLPreview(wx.Frame):
             self.OnOK(event)
         elif key == wx.WXK_ESCAPE:
             self.OnCancel(event)
+        elif key in (ord('+'), ord('='), wx.WXK_NUMPAD_ADD):
+            self.Canvas.Zoom(ZOOM_FACTOR)
+        elif key in (ord('-'), wx.WXK_NUMPAD_SUBTRACT):
+            self.Canvas.Zoom(1.0 / ZOOM_FACTOR)
+        elif key in (ord('f'), ord('F')):
+            self.Canvas.ZoomToBB()
         else:
             event.Skip()
 
