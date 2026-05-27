@@ -57,6 +57,16 @@ class HPGLPreview(wx.Frame):
 
         self.Canvas.Canvas.Bind(wx.EVT_MOTION, self.OnMove)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self.Bind(wx.EVT_CHAR_HOOK, self.OnKeyDown)
+
+    def OnKeyDown(self, event):
+        key = event.GetKeyCode()
+        if key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.OnOK(event)
+        elif key == wx.WXK_ESCAPE:
+            self.OnCancel(event)
+        else:
+            event.Skip()
 
     def OnOK(self, event):
         self.checked = True
