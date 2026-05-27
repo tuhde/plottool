@@ -10,6 +10,9 @@ https://stratum0.org/wiki/Cogi_CT-630
 
 Also works on macOS, but less reliably — prepare for occasional job cancellation.
 
+> This project is being actively extended with the help of
+> [Claude Code](https://claude.ai/code) (Anthropic AI).
+
 Dependencies
 ------------
 
@@ -58,6 +61,7 @@ Send an HPGL file to the plotter:
 | `-o`, `--output FILE` | — | Save processed HPGL to FILE before plotting |
 | `--mirror` | off | Mirror on X-axis (for inverted cuts, e.g. T-shirts) |
 | `--pen` | off | Disable blade offset compensation (use for pen plotters) |
+| `--blade-offset MM` | `0.25` | Blade trailing offset in mm (ignored with `--pen`) |
 | `--reroute {xy,nearest}` | — | Reroute paths: `xy` = boustrophedon rows, `nearest` = greedy nearest-neighbour |
 | `--repeat-x N` | `1` | Tile the design N times along the X axis |
 | `--repeat-y N` | `1` | Tile the design N times along the Y axis |
@@ -77,15 +81,33 @@ Process an HPGL file without plotting (convert, optimise, export):
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `-p`, `--preview SVG` | Export an SVG preview |
-| `-o`, `--output HPGL` | Write processed HPGL to file |
-| `-m`, `--magic` | Enable auto-optimize |
-| `-w`, `--width WIDTH` | Scale to WIDTH mm wide |
-| `--mirror` | Mirror on X-axis |
-| `--pen` | Disable blade offset compensation |
-| `--reroute {xy,nearest}` | Reroute paths |
-| `--repeat-x N` | Tile N times along X |
-| `--repeat-y N` | Tile N times along Y |
-| `--gap MM` | Gap between tiles in mm |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p`, `--preview SVG` | — | Export an SVG preview |
+| `-o`, `--output HPGL` | — | Write processed HPGL to file |
+| `-m`, `--magic` | off | Enable auto-optimize |
+| `-w`, `--width WIDTH` | — | Scale to WIDTH mm wide |
+| `--mirror` | off | Mirror on X-axis |
+| `--pen` | off | Disable blade offset compensation |
+| `--blade-offset MM` | `0.25` | Blade trailing offset in mm (ignored with `--pen`) |
+| `--reroute {xy,nearest}` | — | Reroute paths |
+| `--repeat-x N` | `1` | Tile N times along X |
+| `--repeat-y N` | `1` | Tile N times along Y |
+| `--gap MM` | `5` | Gap between tiles in mm |
+
+Preview window
+--------------
+
+The preview window (`-v` / `--preview`) shows the processed paths before
+sending to the plotter.
+
+| Input | Action |
+|-------|--------|
+| Left-drag | Pan |
+| Scroll wheel | Zoom (centred on cursor) |
+| `+` / `=` | Zoom in |
+| `-` | Zoom out |
+| `f` | Fit view |
+| Arrow keys | Pan |
+| Enter | Confirm (dialog mode) |
+| Esc | Cancel |
