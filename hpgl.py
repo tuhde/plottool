@@ -533,8 +533,9 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
         hpgl_obj.fit()
 
     if blade_optimize:
-        hpgl_obj.optimizeCut(0.25)
-        hpgl_obj.bladeOffset(0.25)
+        blade_offset = getattr(args, 'blade_offset', 0.25) or 0.25
+        hpgl_obj.optimizeCut(blade_offset)
+        hpgl_obj.bladeOffset(blade_offset)
 
     reroute = getattr(args, 'reroute', None)
     if reroute is None and args.magic:
@@ -563,6 +564,7 @@ if __name__ == "__main__":
     parser.add_argument("-w", "--width", metavar="WIDTH", type=int, help="Scale to width in mm")
     parser.add_argument("--mirror", action="store_true", help="Mirror on X-axis for inverted cuts (T-Shirts etc.)")
     parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
+    parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, help="Blade offset in mm (default: 0.25, ignored with --pen)")
     parser.add_argument("--reroute", choices=["xy", "nearest"], help="Reroute paths: xy (boustrophedon) or nearest (greedy)")
     parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
     parser.add_argument("--repeat-y", metavar="N", type=int, default=1, help="Tile N times along Y axis")
