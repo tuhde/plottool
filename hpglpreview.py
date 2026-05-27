@@ -10,6 +10,7 @@ FloatCanvas.float_ = numpy.float64
 
 HPGL2MM = hpgl.hpgl2mm(1)
 ZOOM_FACTOR = 1.3
+PAN_STEP = 50  # pixels per cursor-key press
 
 
 def XYPlotterScale(center):
@@ -101,6 +102,14 @@ class HPGLPreview(wx.Frame):
             self.Canvas.Zoom(1.0 / ZOOM_FACTOR)
         elif key in (ord('f'), ord('F')):
             self.Canvas.ZoomToBB()
+        elif key == wx.WXK_LEFT:
+            self.Canvas.MoveImage((-PAN_STEP, 0), 'Pixel')
+        elif key == wx.WXK_RIGHT:
+            self.Canvas.MoveImage((PAN_STEP, 0), 'Pixel')
+        elif key == wx.WXK_UP:
+            self.Canvas.MoveImage((0, -PAN_STEP), 'Pixel')
+        elif key == wx.WXK_DOWN:
+            self.Canvas.MoveImage((0, PAN_STEP), 'Pixel')
         else:
             event.Skip()
 
