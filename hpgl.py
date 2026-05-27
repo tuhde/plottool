@@ -491,13 +491,11 @@ class HPGL:
 def apply_args(hpgl_obj: HPGL, args) -> None:
     blade_optimize = False
     optimize = False
-    reroute = False
     rotate180 = False
     mirror = args.mirror
 
     if args.magic:
         blade_optimize = True
-        reroute = True
         optimize = True
         rotate180 = True
 
@@ -522,8 +520,21 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
         hpgl_obj.optimizeCut(0.25)
         hpgl_obj.bladeOffset(0.25)
 
-    if reroute:
+    reroute = getattr(args, 'reroute', None)
+    if reroute is None and args.magic:
+        reroute = 'xy'
+    if reroute == 'xy':
         hpgl_obj.rerouteXY()
+    elif reroute == 'nearest':
+        hpgl_obj.rerouteNearest()
+
+    repeat_x = getattr(args, 'repeat_x', 1) or 1
+    repeat_y = getattr(args, 'repeat_y', 1) or 1
+    gap = getattr(args, 'gap', 5.0) or 5.0
+    if repeat_x > 1:
+        hpgl_obj.multiplyX(gap, repeat_x)
+    if repeat_y > 1:
+        hpgl_obj.multiplyY(gap, repeat_y)
 
 
 if __name__ == "__main__":
@@ -536,6 +547,10 @@ if __name__ == "__main__":
     parser.add_argument("-w", "--width", metavar="WIDTH", type=int, help="Scale to width in mm")
     parser.add_argument("--mirror", action="store_true", help="Mirror on X-axis for inverted cuts (T-Shirts etc.)")
     parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
+    parser.add_argument("--reroute", choices=["xy", "nearest"], help="Reroute paths: xy (boustrophedon) or nearest (greedy)")
+    parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
+    parser.add_argument("--repeat-y", metavar="N", type=int, default=1, help="Tile N times along Y axis")
+    parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm (default: 5)")
     args = parser.parse_args()
 
     HPGLinput = HPGL(args.file)
