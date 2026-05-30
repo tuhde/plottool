@@ -641,26 +641,26 @@ class HPGL:
         movement += vecDist(last, (0, 0))
         return hpgl2mm(movement), hpgl2mm(draw)
 
-    def multiplyX(self, delta: float, m: int = 2) -> None:
+    def multiplyX(self, delta: float, m: int = 2, offset_y: float = 0.0, _step_x: Optional[float] = None) -> None:
         if m < 2:
             return
         deltaHPGL = mm2hpgl(delta)
+        offsetHPGL = mm2hpgl(offset_y)
         original = self.getPaths()
-        min_xy, max_xy = self.getBoundingBox()
-        x, y = max_xy
+        step_x = _step_x if _step_x is not None else self.getBoundingBox()[1][0]
         for i in range(m - 1):
-            self.move(x + deltaHPGL, 0)
+            self.move(step_x + deltaHPGL, offsetHPGL)
             self.routes = original + self.routes
 
-    def multiplyY(self, delta: float, m: int = 2) -> None:
+    def multiplyY(self, delta: float, m: int = 2, offset_x: float = 0.0, _step_y: Optional[float] = None) -> None:
         if m < 2:
             return
         deltaHPGL = mm2hpgl(delta)
+        offsetHPGL = mm2hpgl(offset_x)
         original = self.getPaths()
-        min_xy, max_xy = self.getBoundingBox()
-        x, y = max_xy
+        step_y = _step_y if _step_y is not None else self.getBoundingBox()[1][1]
         for i in range(m - 1):
-            self.move(0, y + deltaHPGL)
+            self.move(offsetHPGL, step_y + deltaHPGL)
             self.routes = original + self.routes
 
     def getHPGL(self) -> str:
@@ -830,21 +830,25 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
         hpgl_obj.optimizeCut(blade_offset)
         hpgl_obj.bladeOffset(blade_offset)
 
-    reroute = getattr(args, 'reroute', None)
-    if reroute is None and args.magic:
-        reroute = 'xy'
-    if reroute == 'xy':
-        hpgl_obj.rerouteXY()
-    elif reroute == 'nearest':
-        hpgl_obj.rerouteNearest()
-
     repeat_x = getattr(args, 'repeat_x', 1) or 1
     repeat_y = getattr(args, 'repeat_y', 1) or 1
-    gap = getattr(args, 'gap', 5.0) or 5.0
+    gap = getattr(args, 'gap', 5.0)
+    if gap is None:
+        gap = 5.0
+    gap_x = getattr(args, 'gap_x', None)
+    gap_y = getattr(args, 'gap_y', None)
+    if gap_x is None:
+        gap_x = gap
+    if gap_y is None:
+        gap_y = gap
+    offset_x = getattr(args, 'offset_x', 0.0) or 0.0
+    offset_y = getattr(args, 'offset_y', 0.0) or 0.0
+    if repeat_x > 1 or repeat_y > 1:
+        _, (orig_max_x, orig_max_y) = hpgl_obj.getBoundingBox()
     if repeat_x > 1:
-        hpgl_obj.multiplyX(gap, repeat_x)
+        hpgl_obj.multiplyX(gap_x, repeat_x, offset_y, _step_x=orig_max_x)
     if repeat_y > 1:
-        hpgl_obj.multiplyY(gap, repeat_y)
+        hpgl_obj.multiplyY(gap_y, repeat_y, offset_x, _step_y=orig_max_y)
 
     weed = getattr(args, 'weed', None)
     if weed:
@@ -862,6 +866,14 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
             frame_distance=getattr(args, 'weed_frame_distance', 1.0) or 1.0,
         )
 
+    reroute = getattr(args, 'reroute', None)
+    if reroute is None and args.magic:
+        reroute = 'xy'
+    if reroute == 'xy':
+        hpgl_obj.rerouteXY()
+    elif reroute == 'nearest':
+        hpgl_obj.rerouteNearest()
+
 
 if __name__ == "__main__":
     import argparse
@@ -877,7 +889,11 @@ if __name__ == "__main__":
     parser.add_argument("--reroute", choices=["xy", "nearest"], help="Reroute paths: xy (boustrophedon) or nearest (greedy)")
     parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
     parser.add_argument("--repeat-y", metavar="N", type=int, default=1, help="Tile N times along Y axis")
-    parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm (default: 5)")
+    parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm for both axes (default: 5)")
+    parser.add_argument("--gap-x", metavar="MM", type=float, default=None, help="Gap between tiles along X axis in mm; overrides --gap (negative = overlap)")
+    parser.add_argument("--gap-y", metavar="MM", type=float, default=None, help="Gap between tiles along Y axis in mm; overrides --gap (negative = overlap)")
+    parser.add_argument("--offset-x", metavar="MM", type=float, default=0.0, help="X offset per step when repeating along Y axis in mm (stagger rows)")
+    parser.add_argument("--offset-y", metavar="MM", type=float, default=0.0, help="Y offset per step when repeating along X axis in mm (stagger columns)")
     weed_group = parser.add_argument_group("weeding lines")
     weed_group.add_argument("--weed", metavar="STRATEGY",
                             choices=["grid", "horizontal", "vertical", "frame",

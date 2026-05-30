@@ -28,7 +28,11 @@ parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, he
 parser.add_argument("--reroute", choices=["xy", "nearest"], help="Reroute paths: xy (boustrophedon) or nearest (greedy)")
 parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
 parser.add_argument("--repeat-y", metavar="N", type=int, default=1, help="Tile N times along Y axis")
-parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm (default: 5)")
+parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm for both axes (default: 5)")
+parser.add_argument("--gap-x", metavar="MM", type=float, default=None, help="Gap between tiles along X axis in mm; overrides --gap (negative = overlap)")
+parser.add_argument("--gap-y", metavar="MM", type=float, default=None, help="Gap between tiles along Y axis in mm; overrides --gap (negative = overlap)")
+parser.add_argument("--offset-x", metavar="MM", type=float, default=0.0, help="X offset per step when repeating along Y axis in mm (stagger rows)")
+parser.add_argument("--offset-y", metavar="MM", type=float, default=0.0, help="Y offset per step when repeating along X axis in mm (stagger columns)")
 parser.add_argument("file", type=str, help="the HPGL-file you want to plot")
 weed_group = parser.add_argument_group("weeding lines")
 weed_group.add_argument("--weed", metavar="STRATEGY",
