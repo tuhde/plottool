@@ -99,8 +99,27 @@ def _line_bbox_clip(p1: Point, p2: Point,
            (p1[0] + t_max * dx, p1[1] + t_max * dy)
 
 
+def _point_parity(p: Point, routes: list[Path]) -> int:
+    """Return 1 if p is inside an odd number of path regions (even-odd rule), else 0.
+    Casts a leftward ray from p and counts crossings with all route segments."""
+    py = p[1] + 0.001  # tiny nudge avoids hitting vertices or horizontal segments exactly
+    count = 0
+    for path in routes:
+        for a, b in zip(path, path[1:]):
+            ay, by_ = a[1] - py, b[1] - py
+            if (ay > 0) == (by_ > 0):
+                continue  # segment doesn't straddle the ray's y level
+            cx = a[0] + ay / (ay - by_) * (b[0] - a[0])
+            if cx < p[0]:
+                count += 1
+    return count % 2
+
+
 def _adaptive_clip(p1: Point, p2: Point, routes: list[Path]) -> list[tuple[Point, Point]]:
-    """Split segment p1→p2 at every crossing with routes; return list of sub-segments."""
+    """Split segment p1→p2 at every crossing with routes.
+    Keep sub-segments whose midpoint lies outside all design paths (even-odd rule).
+    Each midpoint is tested independently, avoiding cumulative parity corruption
+    from odd crossings with open paths."""
     ts: list[float] = []
     for path in routes:
         for a, b in zip(path, path[1:]):
@@ -115,7 +134,12 @@ def _adaptive_clip(p1: Point, p2: Point, routes: list[Path]) -> list[tuple[Point
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
     pts = [p1] + [(p1[0] + t * dx, p1[1] + t * dy) for t in deduped] + [p2]
-    return [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+    return [
+        (pts[i], pts[i + 1])
+        for i in range(len(pts) - 1)
+        if _point_parity(((pts[i][0] + pts[i + 1][0]) / 2,
+                          (pts[i][1] + pts[i + 1][1]) / 2), routes) == 0
+    ]
 
 
 def hpgl_goto(match):
@@ -196,36 +220,141 @@ def path_mean(path: Path) -> tuple[Point, Point]:
     return start, start
 
 
-def _weed_horizontal(x0: float, y0: float, x1: float, y1: float, spacing: float) -> list[Path]:
-    lines = []
-    y = y0 + spacing
-    while y < y1:
-        lines.append([(x0, y), (x1, y)])
-        y += spacing
-    return lines
+def _weed_horizontal(x0: float, y0: float, x1: float, y1: float,
+                     by0: float, by1: float, n: int) -> list[Path]:
+    """n-1 horizontal lines that divide [by0, by1] into n equal segments; endpoints extend to x0/x1."""
+    if n <= 1:
+        return []
+    h = by1 - by0
+    return [[(x0, by0 + i * h / n), (x1, by0 + i * h / n)] for i in range(1, n)]
 
 
-def _weed_vertical(x0: float, y0: float, x1: float, y1: float, spacing: float) -> list[Path]:
-    lines = []
-    x = x0 + spacing
-    while x < x1:
-        lines.append([(x, y0), (x, y1)])
-        x += spacing
-    return lines
+def _weed_vertical(x0: float, y0: float, x1: float, y1: float,
+                   bx0: float, bx1: float, n: int) -> list[Path]:
+    """n-1 vertical lines that divide [bx0, bx1] into n equal segments; endpoints extend to y0/y1."""
+    if n <= 1:
+        return []
+    w = bx1 - bx0
+    return [[(bx0 + i * w / n, y0), (bx0 + i * w / n, y1)] for i in range(1, n)]
 
 
 def _weed_grid(x0: float, y0: float, x1: float, y1: float,
-               spacing_x: float, spacing_y: float) -> list[Path]:
-    return _weed_horizontal(x0, y0, x1, y1, spacing_y) + _weed_vertical(x0, y0, x1, y1, spacing_x)
+               bx0: float, by0: float, bx1: float, by1: float,
+               n_x: int, n_y: int) -> list[Path]:
+    return _weed_horizontal(x0, y0, x1, y1, by0, by1, n_y) + \
+           _weed_vertical(x0, y0, x1, y1, bx0, bx1, n_x)
 
 
-def _weed_frame(x0: float, y0: float, x1: float, y1: float) -> list[Path]:
-    return [
-        [(x0, y0), (x1, y0)],
-        [(x1, y0), (x1, y1)],
-        [(x1, y1), (x0, y1)],
-        [(x0, y1), (x0, y0)],
-    ]
+def _weed_frame(bx0: float, by0: float, bx1: float, by1: float, n: int) -> list[Path]:
+    """n-1 concentric rectangular frames stepping inward from bbox edge to centre.
+    The bbox-to-centre distance is divided into n equal parts; frames sit at i=1..n-1."""
+    lines = []
+    w = bx1 - bx0
+    h = by1 - by0
+    for i in range(1, n):
+        xl = bx0 + i * w / (2 * n)
+        xr = bx1 - i * w / (2 * n)
+        yb = by0 + i * h / (2 * n)
+        yt = by1 - i * h / (2 * n)
+        if xl >= xr or yb >= yt:
+            break
+        lines += [
+            [(xl, yb), (xr, yb)],
+            [(xr, yb), (xr, yt)],
+            [(xr, yt), (xl, yt)],
+            [(xl, yt), (xl, yb)],
+        ]
+    return lines
+
+
+def _diagonal_family(x0: float, y0: float, x1: float, y1: float,
+                     c_ref: float, step: float, slope: int) -> list[Path]:
+    """One family of parallel diagonal lines (slope ±1) clipped to the extended bbox."""
+    if step <= 0:
+        return []
+    c_min = (y0 - x1) if slope == 1 else (y0 + x0)
+    c_max = (y1 - x0) if slope == 1 else (y1 + x1)
+    k_min = math.ceil((c_min - c_ref) / step)
+    k_max = math.floor((c_max - c_ref) / step)
+    lines = []
+    for k in range(k_min, k_max + 1):
+        c = c_ref + k * step
+        p1 = (x0, slope * x0 + c)
+        p2 = (x1, slope * x1 + c)
+        seg = _line_bbox_clip(p1, p2, x0, y0, x1, y1)
+        if seg:
+            lines.append(list(seg))
+    return lines
+
+
+def _weed_diagonal(x0: float, y0: float, x1: float, y1: float,
+                   bx0: float, by0: float, bx1: float, by1: float,
+                   n_x: int, n_y: int) -> list[Path]:
+    """45° diagonal lines (y−x = c) equally spaced across the bbox."""
+    step = (bx1 - bx0) / n_x if n_x > 0 else 1.0
+    return _diagonal_family(x0, y0, x1, y1, by0 - bx0, step, slope=1)
+
+
+def _weed_rombic(x0: float, y0: float, x1: float, y1: float,
+                 bx0: float, by0: float, bx1: float, by1: float,
+                 n_x: int, n_y: int) -> list[Path]:
+    """Both diagonal families (45° and 135°) forming a rhombic grid."""
+    step = (bx1 - bx0) / n_x if n_x > 0 else 1.0
+    return (_diagonal_family(x0, y0, x1, y1, by0 - bx0, step, slope=1) +
+            _diagonal_family(x0, y0, x1, y1, by0 + bx0, step, slope=-1))
+
+
+def _weed_tick(x0: float, y0: float, x1: float, y1: float,
+               bx0: float, by0: float, bx1: float, by1: float,
+               tick_hpgl: float, n_x: int, n_y: int) -> list[Path]:
+    """Short inward comb-teeth from each bbox edge. n_x ticks on top/bottom, n_y on left/right."""
+    lines = []
+    for i in range(1, n_x):
+        tx = bx0 + i * (bx1 - bx0) / n_x
+        lines.append([(tx, y0), (tx, y0 + tick_hpgl)])
+        lines.append([(tx, y1), (tx, y1 - tick_hpgl)])
+    for i in range(1, n_y):
+        ty = by0 + i * (by1 - by0) / n_y
+        lines.append([(x0, ty), (x0 + tick_hpgl, ty)])
+        lines.append([(x1, ty), (x1 - tick_hpgl, ty)])
+    return lines
+
+
+def _ray_bbox_intersect(cx: float, cy: float, dx: float, dy: float,
+                        x0: float, y0: float, x1: float, y1: float) -> Optional[Point]:
+    """First intersection of forward ray (cx,cy)+t*(dx,dy), t>0, with the bbox boundary."""
+    t_best = math.inf
+    for wx in (x0, x1):
+        if abs(dx) > 1e-10:
+            t = (wx - cx) / dx
+            if t > 1e-9 and y0 <= cy + t * dy <= y1:
+                t_best = min(t_best, t)
+    for wy in (y0, y1):
+        if abs(dy) > 1e-10:
+            t = (wy - cy) / dy
+            if t > 1e-9 and x0 <= cx + t * dx <= x1:
+                t_best = min(t_best, t)
+    return None if t_best == math.inf else (cx + t_best * dx, cy + t_best * dy)
+
+
+def _weed_radial(x0: float, y0: float, x1: float, y1: float,
+                 bx0: float, by0: float, bx1: float, by1: float,
+                 n_x: int, n_y: int) -> list[Path]:
+    """Spokes from the bbox centre to the extended bbox edges.
+    n_x spokes per horizontal edge, n_y per vertical edge, plus the 4 corners."""
+    cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+    lines = []
+    for px, py in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]:
+        lines.append([(cx, cy), (px, py)])
+    for i in range(1, n_x):
+        px = x0 + i * (x1 - x0) / n_x
+        lines.append([(cx, cy), (px, y0)])
+        lines.append([(cx, cy), (px, y1)])
+    for i in range(1, n_y):
+        py = y0 + i * (y1 - y0) / n_y
+        lines.append([(cx, cy), (x0, py)])
+        lines.append([(cx, cy), (x1, py)])
+    return lines
 
 
 HPGL_CMDS = {
@@ -600,29 +729,45 @@ class HPGL:
                 reverse = not reverse
 
     def addWeedingLines(self, strategy: str = 'grid', edge_count: int = 4,
-                        min_spacing_x: float = 5.0, max_spacing_x: float = 50.0,
-                        min_spacing_y: float = 5.0, max_spacing_y: float = 50.0,
+                        min_spacing_x: float = 1.0, max_spacing_x: float = math.inf,
+                        min_spacing_y: float = 1.0, max_spacing_y: float = math.inf,
                         margin: float = 2.0, tick_length: float = 5.0,
-                        adaptive: bool = True) -> None:
+                        adaptive: bool = True,
+                        add_frame: bool = True, frame_distance: float = 1.0) -> None:
         min_xy, max_xy = self.getBoundingBox()
         mx = mm2hpgl(margin)
         x0, y0 = min_xy[0] - mx, min_xy[1] - mx
         x1, y1 = max_xy[0] + mx, max_xy[1] + mx
 
-        bbox_w = hpgl2mm(max_xy[0] - min_xy[0])
-        bbox_h = hpgl2mm(max_xy[1] - min_xy[1])
-        raw_x = bbox_w / edge_count if edge_count > 0 else max_spacing_x
-        raw_y = bbox_h / edge_count if edge_count > 0 else max_spacing_y
-        spacing_x = max(1.0, mm2hpgl(max(min_spacing_x, min(max_spacing_x, raw_x))))
-        spacing_y = max(1.0, mm2hpgl(max(min_spacing_y, min(max_spacing_y, raw_y))))
+        bx0, by0 = min_xy[0], min_xy[1]
+        bx1, by1 = max_xy[0], max_xy[1]
+
+        if not hasattr(self, '_design_bbox'):
+            self._design_bbox = (min_xy, max_xy)
+
+        def _clamp_n(n, size, min_sp, max_sp):
+            if size <= 0:
+                return 1
+            if min_sp > 0:
+                n = min(n, int(size / mm2hpgl(min_sp)))
+            if max_sp < math.inf:
+                n = max(n, math.ceil(size / mm2hpgl(max_sp)))
+            return max(n, 1)
+
+        n_x = _clamp_n(edge_count, bx1 - bx0, min_spacing_x, max_spacing_x)
+        n_y = _clamp_n(edge_count, by1 - by0, min_spacing_y, max_spacing_y)
 
         original_routes = self.routes[:]
 
         dispatch = {
-            'grid':       lambda: _weed_grid(x0, y0, x1, y1, spacing_x, spacing_y),
-            'horizontal': lambda: _weed_horizontal(x0, y0, x1, y1, spacing_y),
-            'vertical':   lambda: _weed_vertical(x0, y0, x1, y1, spacing_x),
-            'frame':      lambda: _weed_frame(x0, y0, x1, y1),
+            'grid':       lambda: _weed_grid(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
+            'horizontal': lambda: _weed_horizontal(x0, y0, x1, y1, by0, by1, n_y),
+            'vertical':   lambda: _weed_vertical(x0, y0, x1, y1, bx0, bx1, n_x),
+            'frame':      lambda: _weed_frame(bx0, by0, bx1, by1, edge_count),
+            'diagonal':   lambda: _weed_diagonal(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
+            'rombic':     lambda: _weed_rombic(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
+            'tick':       lambda: _weed_tick(x0, y0, x1, y1, bx0, by0, bx1, by1, mm2hpgl(tick_length), n_x, n_y),
+            'radial':     lambda: _weed_radial(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
         }
         fn = dispatch.get(strategy)
         if fn is None:
@@ -639,6 +784,17 @@ class HPGL:
             new_lines = clipped
 
         self.routes.extend(new_lines)
+
+        if add_frame:
+            fd = mm2hpgl(frame_distance)
+            fx0, fy0 = bx0 - fd, by0 - fd
+            fx1, fy1 = bx1 + fd, by1 + fd
+            self.routes += [
+                [(fx0, fy0), (fx1, fy0)],
+                [(fx1, fy0), (fx1, fy1)],
+                [(fx1, fy1), (fx0, fy1)],
+                [(fx0, fy1), (fx0, fy0)],
+            ]
 
 
 def apply_args(hpgl_obj: HPGL, args) -> None:
@@ -695,13 +851,15 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
         hpgl_obj.addWeedingLines(
             strategy=weed,
             edge_count=getattr(args, 'weed_edge_count', 4) or 4,
-            min_spacing_x=getattr(args, 'weed_min_x', 5.0) or 5.0,
-            max_spacing_x=getattr(args, 'weed_max_x', 50.0) or 50.0,
-            min_spacing_y=getattr(args, 'weed_min_y', 5.0) or 5.0,
-            max_spacing_y=getattr(args, 'weed_max_y', 50.0) or 50.0,
+            min_spacing_x=getattr(args, 'weed_min_x', 1.0) or 1.0,
+            max_spacing_x=getattr(args, 'weed_max_x', None) or float('inf'),
+            min_spacing_y=getattr(args, 'weed_min_y', 1.0) or 1.0,
+            max_spacing_y=getattr(args, 'weed_max_y', None) or float('inf'),
             margin=getattr(args, 'weed_margin', 2.0) or 2.0,
             tick_length=getattr(args, 'weed_tick_length', 5.0) or 5.0,
             adaptive=not getattr(args, 'no_weed_adaptive', False),
+            add_frame=not getattr(args, 'no_weed_frame', False),
+            frame_distance=getattr(args, 'weed_frame_distance', 1.0) or 1.0,
         )
 
 
@@ -722,24 +880,30 @@ if __name__ == "__main__":
     parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm (default: 5)")
     weed_group = parser.add_argument_group("weeding lines")
     weed_group.add_argument("--weed", metavar="STRATEGY",
-                            choices=["grid", "horizontal", "vertical", "frame"],
-                            help="Add weeding lines (grid, horizontal, vertical, frame)")
+                            choices=["grid", "horizontal", "vertical", "frame",
+                                     "diagonal", "rombic", "tick", "radial"],
+                            help="Add weeding lines (grid, horizontal, vertical, frame, "
+                                 "diagonal, rombic, tick, radial)")
     weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4,
                             help="Number of segments per bbox edge (default: 4)")
-    weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=5.0,
-                            help="Min spacing between vertical weeding lines in mm (default: 5)")
-    weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=50.0,
-                            help="Max spacing between vertical weeding lines in mm (default: 50)")
-    weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=5.0,
-                            help="Min spacing between horizontal weeding lines in mm (default: 5)")
-    weed_group.add_argument("--weed-max-y", metavar="MM", type=float, default=50.0,
-                            help="Max spacing between horizontal weeding lines in mm (default: 50)")
+    weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0,
+                            help="Min spacing between vertical weeding lines in mm (default: 1)")
+    weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None,
+                            help="Max spacing between vertical weeding lines in mm (default: unlimited)")
+    weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=1.0,
+                            help="Min spacing between horizontal weeding lines in mm (default: 1)")
+    weed_group.add_argument("--weed-max-y", metavar="MM", type=float, default=None,
+                            help="Max spacing between horizontal weeding lines in mm (default: unlimited)")
     weed_group.add_argument("--weed-margin", metavar="MM", type=float, default=2.0,
                             help="Extend weeding lines beyond bbox in mm (default: 2)")
     weed_group.add_argument("--weed-tick-length", metavar="MM", type=float, default=5.0,
                             help="Tick/comb tooth length in mm (default: 5)")
     weed_group.add_argument("--no-weed-adaptive", action="store_true",
                             help="Disable splitting weeding lines at design intersections")
+    weed_group.add_argument("--no-weed-frame", action="store_true",
+                            help="Disable the outer frame rectangle around the bbox")
+    weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, default=1.0,
+                            help="Distance of outer frame from bbox in mm (default: 1)")
     args = parser.parse_args()
 
     HPGLinput = HPGL(args.file)

@@ -32,24 +32,30 @@ parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap be
 parser.add_argument("file", type=str, help="the HPGL-file you want to plot")
 weed_group = parser.add_argument_group("weeding lines")
 weed_group.add_argument("--weed", metavar="STRATEGY",
-                        choices=["grid", "horizontal", "vertical", "frame"],
-                        help="Add weeding lines (grid, horizontal, vertical, frame)")
+                        choices=["grid", "horizontal", "vertical", "frame",
+                                 "diagonal", "rombic", "tick", "radial"],
+                        help="Add weeding lines (grid, horizontal, vertical, frame, "
+                             "diagonal, rombic, tick, radial)")
 weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4,
                         help="Number of segments per bbox edge (default: 4)")
-weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=5.0,
-                        help="Min spacing between vertical weeding lines in mm (default: 5)")
-weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=50.0,
-                        help="Max spacing between vertical weeding lines in mm (default: 50)")
-weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=5.0,
-                        help="Min spacing between horizontal weeding lines in mm (default: 5)")
-weed_group.add_argument("--weed-max-y", metavar="MM", type=float, default=50.0,
-                        help="Max spacing between horizontal weeding lines in mm (default: 50)")
+weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0,
+                        help="Min spacing between vertical weeding lines in mm (default: 1)")
+weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None,
+                        help="Max spacing between vertical weeding lines in mm (default: unlimited)")
+weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=1.0,
+                        help="Min spacing between horizontal weeding lines in mm (default: 1)")
+weed_group.add_argument("--weed-max-y", metavar="MM", type=float, default=None,
+                        help="Max spacing between horizontal weeding lines in mm (default: unlimited)")
 weed_group.add_argument("--weed-margin", metavar="MM", type=float, default=2.0,
                         help="Extend weeding lines beyond bbox in mm (default: 2)")
 weed_group.add_argument("--weed-tick-length", metavar="MM", type=float, default=5.0,
                         help="Tick/comb tooth length in mm (default: 5)")
 weed_group.add_argument("--no-weed-adaptive", action="store_true",
                         help="Disable splitting weeding lines at design intersections")
+weed_group.add_argument("--no-weed-frame", action="store_true",
+                        help="Disable the outer frame rectangle around the bbox")
+weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, default=1.0,
+                        help="Distance of outer frame from bbox in mm (default: 1)")
 args = parser.parse_args()
 
 try:

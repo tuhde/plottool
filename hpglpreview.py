@@ -12,6 +12,41 @@ FloatCanvas.float_ = numpy.float64
 HPGL2MM = hpgl.hpgl2mm(1)
 ZOOM_FACTOR = 1.3
 PAN_STEP = 50  # pixels per cursor-key press
+ARROW_SIZE = 50  # HPGL units (~1.25 mm)
+
+
+_MARKER_N = 20  # polygon sides used to approximate circles
+
+def _marker_pts(pt, radius):
+    return [(pt[0] + radius * math.cos(2 * math.pi * i / _MARKER_N),
+             pt[1] + radius * math.sin(2 * math.pi * i / _MARKER_N))
+            for i in range(_MARKER_N)]
+
+def _draw_start_marker(canvas, pt, color, radius):
+    """Filled polygon (pen-down / start of cut)."""
+    canvas.AddPolygon(_marker_pts(pt, radius), LineColor=color, FillColor=color)
+
+def _draw_end_marker(canvas, pt, color, radius):
+    """Circle outline polygon (pen-up / end of cut)."""
+    pts = _marker_pts(pt, radius)
+    pts.append(pts[0])  # close the loop
+    canvas.AddLine(pts, LineColor=color, LineWidth=2)
+
+def _draw_arrow(canvas, path, color):
+    """Draw a small V-shaped direction arrowhead at the midpoint of path."""
+    mid = max(1, len(path) // 2)
+    p1, p2 = path[mid - 1], path[mid]
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    ln = math.hypot(dx, dy)
+    if ln < ARROW_SIZE * 0.5:
+        return
+    mx, my = (p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2
+    ux, uy = dx / ln, dy / ln
+    ca, sa = math.cos(math.radians(30)), math.sin(math.radians(30))
+    bx, by = -ux * ARROW_SIZE, -uy * ARROW_SIZE
+    w1 = (mx + ca * bx - sa * by, my + sa * bx + ca * by)
+    w2 = (mx + ca * bx + sa * by, my - sa * bx + ca * by)
+    canvas.AddLine([w1, (mx, my), w2], LineColor=color)
 
 
 def XYPlotterScale(center):
@@ -23,7 +58,8 @@ def XYPlotterScale(center):
 
 class HPGLPreview(wx.Frame):
 
-    def __init__(self, hpgldata, title="HPGL preview", size=(1200, 700), dialog=False, *args, **kwargs):
+    def __init__(self, hpgldata, title="HPGL preview", size=(1600, 900), dialog=False,
+                 show_endpoints=True, show_points=False, *args, **kwargs):
         super(HPGLPreview, self).__init__(parent=None, title=title, size=size, *args, **kwargs)
         self.checked = False
         self._hpgl_paths = list(hpgldata.getPaths())
@@ -76,14 +112,33 @@ class HPGLPreview(wx.Frame):
 
         self.SetSizer(self.sizer)
 
+        travel_pen = wx.Pen("blue", 1, wx.PENSTYLE_USER_DASH)
+        travel_pen.SetDashes([2, 12])  # 1:6 dot:gap ratio in pixels
+
         last = (0, 0)
         for line in hpgldata.getPaths():
             self.Canvas.AddLine(line)
-            self.Canvas.AddLine([last, line[0]], LineColor="blue")
+            _draw_arrow(self.Canvas, line, "black")
+            if show_points:
+                for pt in line:
+                    _draw_start_marker(self.Canvas, pt, "LightBlue", ARROW_SIZE * 0.35)
+            travel = [last, line[0]]
+            travel_obj = self.Canvas.AddLine(travel, LineColor="blue")
+            travel_obj.Pen = travel_pen
+            _draw_arrow(self.Canvas, travel, "blue")
+            if show_endpoints:
+                _draw_start_marker(self.Canvas, line[0],  "SteelBlue", ARROW_SIZE * 0.6)
+                _draw_end_marker(  self.Canvas, line[-1], "DarkBlue",  ARROW_SIZE)
             last = line[-1]
-        self.Canvas.AddLine([last, (0, 0)], LineColor="green")
+        home = [last, (0, 0)]
+        self.Canvas.AddLine(home, LineColor="green")
+        _draw_arrow(self.Canvas, home, "green")
         m, mm = hpgldata.getBoundingBox()
         self.Canvas.AddRectangle((0, 0), (mm[0] + m[0], mm[1] + m[1]), LineColor="orange")
+        if hasattr(hpgldata, '_design_bbox'):
+            dm, dmm = hpgldata._design_bbox
+            self.Canvas.AddRectangle((dm[0], dm[1]), (dmm[0] - dm[0], dmm[1] - dm[1]),
+                                     LineColor="green")
 
         # GUIMove: left-drag pans, mouse wheel zooms (via ZoomWithMouseWheel mixin).
         # No additional bindings needed for either behaviour.

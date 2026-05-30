@@ -13,6 +13,36 @@ Also works on macOS, but less reliably — prepare for occasional job cancellati
 > This project is being actively extended with the help of
 > [Claude Code](https://claude.ai/code) (Anthropic AI).
 
+What's new
+----------
+
+**Weeding lines** — after processing, add extra cut lines to the design to help
+remove waste vinyl. Eight strategies are available:
+
+| Strategy | Description |
+|----------|-------------|
+| `grid` | Horizontal + vertical lines across the bbox |
+| `horizontal` / `vertical` | Single-axis grid lines |
+| `diagonal` | 45° lines across the bbox |
+| `rombic` | Both diagonal families (diamond grid) |
+| `frame` | Concentric rectangles stepping inward from the bbox edge to the centre |
+| `tick` | Short inward comb-teeth from each bbox edge |
+| `radial` | Spokes radiating from the bbox centre |
+
+All strategies support **adaptive clipping** (default on): weeding lines are split
+at intersections with existing design paths and only the blank-area segments are
+kept, avoiding double-cuts through closed design regions.
+An outer frame rectangle (default 1 mm from the bbox) is added automatically.
+
+Use `--weed STRATEGY` with `--weed-edge-count`, `--weed-margin`,
+`--weed-frame-distance`, etc. to control the output (see `--help` for all flags).
+
+**Improved preview** — the preview window now shows:
+- Direction arrows on cut paths, travel moves, and the return-to-origin line
+- Dotted travel (pen-up) lines
+- Start-of-cut (filled blue dot) and end-of-cut (blue ring) markers at every pen transition
+- The design bounding box before weeding lines are added (green rectangle)
+
 Dependencies
 ------------
 
@@ -66,6 +96,12 @@ Send an HPGL file to the plotter:
 | `--repeat-x N` | `1` | Tile the design N times along the X axis |
 | `--repeat-y N` | `1` | Tile the design N times along the Y axis |
 | `--gap MM` | `5` | Gap between tiles in mm |
+| `--weed STRATEGY` | — | Add weeding lines (grid, horizontal, vertical, diagonal, rombic, frame, tick, radial) |
+| `--weed-edge-count N` | `4` | Lines per bbox edge / frame count / spoke count |
+| `--weed-margin MM` | `2` | Extend weeding lines beyond bbox in mm |
+| `--weed-frame-distance MM` | `1` | Distance of outer frame from bbox |
+| `--no-weed-frame` | — | Suppress the automatic outer frame |
+| `--no-weed-adaptive` | — | Disable adaptive clipping |
 
 On macOS, tty devices follow a different naming convention — look for something
 like `/dev/tty.usbserial-14430` or `/dev/cu.usbserial-14430`.
@@ -94,6 +130,12 @@ Process an HPGL file without plotting (convert, optimise, export):
 | `--repeat-x N` | `1` | Tile N times along X |
 | `--repeat-y N` | `1` | Tile N times along Y |
 | `--gap MM` | `5` | Gap between tiles in mm |
+| `--weed STRATEGY` | — | Add weeding lines (see strategies above) |
+| `--weed-edge-count N` | `4` | Lines per bbox edge / frame count / spoke count |
+| `--weed-margin MM` | `2` | Extend weeding lines beyond bbox in mm |
+| `--weed-frame-distance MM` | `1` | Distance of outer frame from bbox |
+| `--no-weed-frame` | — | Suppress the automatic outer frame |
+| `--no-weed-adaptive` | — | Disable adaptive clipping |
 
 Preview window
 --------------
