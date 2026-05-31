@@ -37,11 +37,9 @@ parser.add_argument("file", type=str, help="the HPGL-file you want to plot")
 weed_group = parser.add_argument_group("weeding lines")
 weed_group.add_argument("--weed", metavar="STRATEGY",
                         choices=["grid", "horizontal", "vertical", "frame",
-                                 "diagonal", "rombic", "tick", "radial"],
+                                 "diagonal", "rombic", "tick", "radial", "bridge"],
                         help="Add weeding lines (grid, horizontal, vertical, frame, "
-                             "diagonal, rombic, tick, radial)")
-weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4,
-                        help="Number of segments per bbox edge (default: 4)")
+                             "diagonal, rombic, tick, radial, bridge)")
 weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0,
                         help="Min spacing between vertical weeding lines in mm (default: 1)")
 weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None,
@@ -54,6 +52,10 @@ weed_group.add_argument("--weed-margin", metavar="MM", type=float, default=2.0,
                         help="Extend weeding lines beyond bbox in mm (default: 2)")
 weed_group.add_argument("--weed-tick-length", metavar="MM", type=float, default=5.0,
                         help="Tick/comb tooth length in mm (default: 5)")
+weed_group.add_argument("--weed-size", metavar="PCT", type=float, default=25.0,
+                        help="Max waste piece size as %% of bbox area (default: 25)")
+weed_group.add_argument("--weed-min-size", metavar="PCT", type=float, default=0.0,
+                        help="Inner circle area for radial strategy as %% of bbox area (default: weed-size/10)")
 weed_group.add_argument("--no-weed-adaptive", action="store_true",
                         help="Disable splitting weeding lines at design intersections")
 weed_group.add_argument("--no-weed-frame", action="store_true",

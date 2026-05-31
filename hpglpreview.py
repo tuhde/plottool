@@ -244,9 +244,25 @@ if __name__ == "__main__":
     app = wx.App(False)
     parser = argparse.ArgumentParser("HPGL preview")
     parser.add_argument("file", type=str, help="the HPGL-file to open")
+    weed_group = parser.add_argument_group("weeding lines")
+    weed_group.add_argument("--weed", metavar="STRATEGY",
+                            choices=["grid", "horizontal", "vertical", "frame",
+                                     "diagonal", "rombic", "tick", "radial", "bridge"],
+                            help="Add weeding lines")
+    weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4)
+    weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0)
+    weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None)
+    weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=1.0)
+    weed_group.add_argument("--weed-max-y", metavar="MM", type=float, default=None)
+    weed_group.add_argument("--weed-margin", metavar="MM", type=float, default=2.0)
+    weed_group.add_argument("--weed-tick-length", metavar="MM", type=float, default=5.0)
+    weed_group.add_argument("--no-weed-adaptive", action="store_true")
+    weed_group.add_argument("--no-weed-frame", action="store_true")
+    weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, default=1.0)
     args = parser.parse_args()
 
     hpglfile = hpgl.HPGL(args.file)
+    hpgl.apply_args(hpglfile, args)
 
     dialog = HPGLPreview(hpglfile)
 
