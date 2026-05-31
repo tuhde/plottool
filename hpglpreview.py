@@ -49,13 +49,6 @@ def _draw_arrow(canvas, path, color):
     canvas.AddLine([w1, (mx, my), w2], LineColor=color)
 
 
-def XYPlotterScale(center):
-    # Invert the Y axis so the canvas matches HPGL coordinates (Y increases
-    # upward), rather than screen coordinates (Y increases downward).
-    # center is unused; FloatCanvas requires this signature.
-    return (-1.0, 1.0)
-
-
 class HPGLPreview(wx.Frame):
 
     def __init__(self, hpgldata, title="HPGL preview", size=(1600, 900), dialog=False,
@@ -78,7 +71,7 @@ class HPGLPreview(wx.Frame):
             tb.Add(btn, 0, wx.LEFT | wx.TOP | wx.BOTTOM, 2)
         self.sizer.Add(tb, 0, wx.ALL, 0)
 
-        self.Canvas = FloatCanvas.FloatCanvas(self, -1, ProjectionFun=XYPlotterScale, BackgroundColor="white")
+        self.Canvas = FloatCanvas.FloatCanvas(self, -1, BackgroundColor="white")
         self.sizer.Add(self.Canvas, 1, wx.ALL | wx.EXPAND)
 
         # summary bar

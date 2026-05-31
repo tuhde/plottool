@@ -2,6 +2,10 @@
 # Copy to ~/.plottoolrc (global) or plottool.conf (per-directory).
 # Settings in [default] always apply. Use --profile NAME to also apply a
 # named section on top. Command-line args always override config values.
+#
+# Plotter hardware definitions use [plotter:NAME] sections, selected with
+# --plotter NAME. Only mirror, flip, and rotate (0/90/180/270) are supported.
+# These transforms are applied last, after all design operations.
 
 [default]
 magic = true
@@ -18,3 +22,7 @@ width = 300
 [pen]
 pen = true
 no-blade-prep = true
+
+[plotter:generic]
+# Placeholder — no correction needed
+rotate = 0

@@ -5,7 +5,7 @@ __author__ = "doommaster"
 
 import sys
 import argparse
-from hpgl import HPGL, apply_args, load_config, apply_config_to_parser
+from hpgl import HPGL, apply_args, apply_plotter_transform, load_config, load_plotter_config, apply_config_to_parser
 try:
     import serial
 except ImportError:
@@ -17,6 +17,11 @@ except ImportError:
 
 parser = argparse.ArgumentParser(description="Process all arguments ")
 parser.add_argument("--profile", metavar="NAME", help="Config profile to load from ~/.plottoolrc or plottool.conf")
+parser.add_argument("--plotter", metavar="NAME", help="Plotter profile to load from ~/.plottoolrc or plottool.conf ([plotter:NAME] section)")
+plotter_group = parser.add_argument_group("plotter transform (applied last, after all other operations)")
+plotter_group.add_argument("--plotter-mirror", action="store_true", help="Mirror on X-axis (plotter-level correction)")
+plotter_group.add_argument("--plotter-flip", action="store_true", help="Flip on Y-axis (plotter-level correction)")
+plotter_group.add_argument("--plotter-rotate", metavar="DEG", type=int, choices=[0, 90, 180, 270], default=None, help="Rotate by 90° steps (plotter-level correction)")
 parser.add_argument("-p", "--port", metavar="PORT", type=str, help="Serial port (default: /dev/ttyUSB0)", default="/dev/ttyUSB0")
 parser.add_argument("-b", "--baud", metavar="BAUD", type=int, help="Serial baud rate (default: 9600)", default=9600)
 parser.add_argument("-m", "--magic", action="store_true", help="Enable auto-optimize")
@@ -74,8 +79,11 @@ weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, defau
                         help="Distance of outer frame from bbox in mm (default: 1)")
 pre_parser = argparse.ArgumentParser(add_help=False)
 pre_parser.add_argument('--profile', default=None)
+pre_parser.add_argument('--plotter', default=None)
 pre_args, _ = pre_parser.parse_known_args()
 apply_config_to_parser(parser, load_config(pre_args.profile))
+if pre_args.plotter:
+    apply_config_to_parser(parser, load_plotter_config(pre_args.plotter))
 
 args = parser.parse_args()
 
@@ -88,10 +96,6 @@ except Exception:
 
 
 apply_args(HPGLinput, args)
-
-if args.output:
-    HPGLinput.exportHPGL(args.output)
-    print("Saved processed HPGL to: {}".format(args.output))
 
 print("Plotting file: " + args.file)
 w, h = HPGLinput.getSize()
@@ -116,6 +120,14 @@ except KeyboardInterrupt:
     sys.exit(0)
 if cont != "y":
     sys.exit(0)
+
+apply_plotter_transform(HPGLinput, args)
+if not args.no_blade_prep:
+    HPGLinput.bladePrepCut()
+
+if args.output:
+    HPGLinput.exportHPGL(args.output)
+    print("Saved processed HPGL to: {}".format(args.output))
 
 print("Using port: {}".format(args.port))
 

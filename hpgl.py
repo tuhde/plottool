@@ -986,9 +986,14 @@ class HPGL:
             ]
 
 
-def load_config(profile: str = None) -> dict:
+def _read_config_files() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config.read([os.path.expanduser('~/.plottoolrc'), 'plottool.conf'])
+    return config
+
+
+def load_config(profile: str = None) -> dict:
+    config = _read_config_files()
     result = {}
     if 'default' in config:
         result.update(config['default'])
@@ -998,6 +1003,15 @@ def load_config(profile: str = None) -> dict:
         else:
             print(f"Warning: config profile '{profile}' not found", file=sys.stderr)
     return result
+
+
+def load_plotter_config(name: str) -> dict:
+    config = _read_config_files()
+    section = f'plotter:{name}'
+    if section not in config:
+        print(f"Warning: plotter '{name}' not found in config", file=sys.stderr)
+        return {}
+    return {f'plotter-{k}': v for k, v in config[section].items()}
 
 
 def apply_config_to_parser(parser, config: dict) -> None:
@@ -1033,6 +1047,16 @@ def apply_config_to_parser(parser, config: dict) -> None:
         else:
             converted[dest] = value
     parser.set_defaults(**converted)
+
+
+def apply_plotter_transform(hpgl_obj: HPGL, args) -> None:
+    rotate = getattr(args, 'plotter_rotate', None)
+    if rotate:
+        hpgl_obj.rotate(float(rotate))
+    if getattr(args, 'plotter_mirror', False):
+        hpgl_obj.mirrorX()
+    if getattr(args, 'plotter_flip', False):
+        hpgl_obj.mirrorY()
 
 
 def apply_args(hpgl_obj: HPGL, args) -> None:
@@ -1119,15 +1143,17 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
     elif reroute == 'nearest':
         hpgl_obj.rerouteNearest()
 
-    if not getattr(args, 'no_blade_prep', False):
-        hpgl_obj.bladePrepCut()
-
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser("HPGL modification/optimization tool")
     parser.add_argument("file", type=str, help="the HPGL-file to edit")
     parser.add_argument("--profile", metavar="NAME", help="Config profile to load from ~/.plottoolrc or plottool.conf")
+    parser.add_argument("--plotter", metavar="NAME", help="Plotter profile to load from ~/.plottoolrc or plottool.conf ([plotter:NAME] section)")
+    plotter_group = parser.add_argument_group("plotter transform (applied last, after all other operations)")
+    plotter_group.add_argument("--plotter-mirror", action="store_true", help="Mirror on X-axis (plotter-level correction)")
+    plotter_group.add_argument("--plotter-flip", action="store_true", help="Flip on Y-axis (plotter-level correction)")
+    plotter_group.add_argument("--plotter-rotate", metavar="DEG", type=int, choices=[0, 90, 180, 270], default=None, help="Rotate by 90° steps (plotter-level correction)")
     parser.add_argument("-p", "--preview", type=str, help="Generate SVG preview file", metavar="SVG")
     parser.add_argument("-o", "--output", type=str, help="Output HPGL file", metavar="HPGL")
     parser.add_argument("-m", "--magic", action="store_true", help="Enable auto-optimize")
@@ -1182,8 +1208,11 @@ if __name__ == "__main__":
                             help="Distance of outer frame from bbox in mm (default: 1)")
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument('--profile', default=None)
+    pre_parser.add_argument('--plotter', default=None)
     pre_args, _ = pre_parser.parse_known_args()
     apply_config_to_parser(parser, load_config(pre_args.profile))
+    if pre_args.plotter:
+        apply_config_to_parser(parser, load_plotter_config(pre_args.plotter))
 
     args = parser.parse_args()
 
@@ -1192,5 +1221,10 @@ if __name__ == "__main__":
 
     if args.preview is not None:
         HPGLinput.exportSVG(args.preview)
+
+    apply_plotter_transform(HPGLinput, args)
+    if not getattr(args, 'no_blade_prep', False):
+        HPGLinput.bladePrepCut()
+
     if args.output is not None:
         HPGLinput.exportHPGL(args.output)
