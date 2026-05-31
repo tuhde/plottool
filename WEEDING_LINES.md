@@ -44,7 +44,6 @@ it is not necessarily enclosed by a closed path.
 | `frame` | Concentric equal-area rectangles from the bbox edge inward |
 | `tick` | Short inward comb-teeth from each bbox edge |
 | `radial` | Evenly-angled spokes from the bbox centre |
-| `bridge` | MST bridges between visible parts and the perimeter |
 
 ---
 
@@ -54,7 +53,8 @@ it is not necessarily enclosed by a closed path.
 |----------|---------|------------|---------|
 | `--weed STRATEGY` | — | all | Strategy name (see table above) |
 | `--weed-size PCT` | `25` | all | Max waste piece size as % of bbox area |
-| `--weed-min-size PCT` | `weed-size/10` | `radial` | Inner circle area as % of bbox area |
+| `--weed-small-size PCT` | `weed-size/10` | `radial` | Inner circle area as % of bbox area |
+| `--weed-min-size PCT` | `weed-small-size/10` | all | Drop weeding lines that create waste pieces smaller than this |
 | `--weed-min-x MM` | `1` | grid-family | Min spacing between vertical weeding lines |
 | `--weed-max-x MM` | ∞ | grid-family | Max spacing between vertical weeding lines |
 | `--weed-min-y MM` | `1` | grid-family | Min spacing between horizontal weeding lines |
@@ -73,7 +73,6 @@ it is not necessarily enclosed by a closed path.
 | `horizontal` / `vertical` | `ceil(100 / weed_size)` lines |
 | `frame` | rings at scale `sqrt(1 − k × weed_size/100)` until the ring collapses |
 | `radial` | `round(effective_area / (bbox_area × weed_size/100))` spokes |
-| `bridge` | one MST bridge per part; interiors subdivided by `round(interior_area / target)` |
 
 ---
 
@@ -115,22 +114,7 @@ where `effective_area = bbox_area − π × inner_r²`.
 **Inner circle** — when the centre lies in waste and is enclosed by a route:
 
 - *Large interior* (enclosing route's bbox area ≥ `weed_size`% of bbox): an inner circle of
-  area `weed_min_size`% of bbox is added; spokes start from the circle boundary.
+  area `weed_small_size`% of bbox is added; spokes start from the circle boundary.
 - *Small interior* (enclosing route's bbox area < `weed_size`%): no circle; spokes start
   from the interior boundary so no segment falls inside the hole.
 
-### `bridge`
-
-Uses a minimum-spanning-tree (MST) approach:
-
-1. Classify all routes as **parts** (exterior, parity even from outside) or **interiors**
-   (enclosed waste holes).
-2. Build a visibility graph: two nodes are connected if a straight line between their
-   closest points does not cross any third route.
-3. Run Kruskal's algorithm over parts + the four bbox edges to find the MST of shortest
-   bridges.
-4. Each bridge in the MST becomes a weeding line.
-5. Each interior is subdivided by horizontal lines proportional to
-   `round(interior_area / target_area)`.
-
-Adaptive clipping removes any bridge segment that crosses into part material.

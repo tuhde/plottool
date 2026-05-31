@@ -247,9 +247,11 @@ if __name__ == "__main__":
     weed_group = parser.add_argument_group("weeding lines")
     weed_group.add_argument("--weed", metavar="STRATEGY",
                             choices=["grid", "horizontal", "vertical", "frame",
-                                     "diagonal", "rombic", "tick", "radial", "bridge"],
+                                     "diagonal", "rombic", "tick", "radial"],
                             help="Add weeding lines")
-    weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4)
+    weed_group.add_argument("--weed-size", metavar="PCT", type=float, default=25.0)
+    weed_group.add_argument("--weed-small-size", metavar="PCT", type=float, default=0.0)
+    weed_group.add_argument("--weed-min-size", metavar="PCT", type=float, default=0.0)
     weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0)
     weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None)
     weed_group.add_argument("--weed-min-y", metavar="MM", type=float, default=1.0)

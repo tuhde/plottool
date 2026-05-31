@@ -346,13 +346,13 @@ def _ray_bbox_intersect(cx: float, cy: float, dx: float, dy: float,
 
 def _weed_radial(x0: float, y0: float, x1: float, y1: float,
                  bx0: float, by0: float, bx1: float, by1: float,
-                 weed_size: float, weed_min_size: float,
+                 weed_size: float, weed_small_size: float,
                  routes: list[Path]) -> list[Path]:
     """Spokes from the bbox centre at evenly-distributed angles (360°/n_spokes apart).
 
     If the centre lies in waste (not inside a part), all spokes would converge
     at one uncut spot which may tear the vinyl.  In that case a small inner circle
-    of area weed_min_size% of bbox is added and spokes run from the circle boundary
+    of area weed_small_size% of bbox is added and spokes run from the circle boundary
     to the perimeter instead of from the centre.
     """
     cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
@@ -373,7 +373,7 @@ def _weed_radial(x0: float, y0: float, x1: float, y1: float,
             )
             if interior_bbox_area >= W * H * weed_size / 100.0:
                 enclosing_routes = []
-                inner_r = math.sqrt(W * H * weed_min_size / (100.0 * math.pi))
+                inner_r = math.sqrt(W * H * weed_small_size / (100.0 * math.pi))
                 circle_r = inner_r
 
     effective_area = W * H - math.pi * inner_r ** 2
@@ -425,128 +425,46 @@ def _point_to_seg_closest(p: Point, a: Point, b: Point) -> tuple[float, Point]:
     return vecDist(p, closest), closest
 
 
-def _sample_path_evenly(route: Path, n: int) -> list[Point]:
-    """n points evenly spaced by arc-length along the polyline."""
-    if n <= 1:
-        return [route[0]]
-    lengths = [0.0]
-    for a, b in zip(route, route[1:]):
-        lengths.append(lengths[-1] + vecDist(a, b))
-    total = lengths[-1]
-    if total < 1e-10:
-        return [route[0]] * n
-    result = []
-    for i in range(n):
-        target = i * total / (n - 1)
-        for k in range(len(lengths) - 1):
-            if lengths[k + 1] >= target:
-                seg_len = lengths[k + 1] - lengths[k]
-                s = (target - lengths[k]) / seg_len if seg_len > 1e-10 else 0.0
-                a, b = route[k], route[k + 1]
-                result.append((a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1])))
-                break
-    return result
+def _weed_small_piece_filter(
+    segments: list[Path],
+    routes: list[Path],
+    x0: float, y0: float, x1: float, y1: float,
+    bbox_area: float,
+    weed_min_size: float,
+) -> list[Path]:
+    """Remove 2-point weeding segments that create waste pieces below weed_min_size% of bbox.
 
-
-def _bridge_visible(pa: Point, pb: Point, routes: list[Path], skip: frozenset) -> bool:
-    """True if segment pa→pb doesn't intersect any route not in skip (by index)."""
-    for i, route in enumerate(routes):
-        if i in skip:
-            continue
-        for a, b in zip(route, route[1:]):
-            if _seg_intersect_t(pa, pb, a, b) is not None:
-                return False
-    return True
-
-
-def _closest_visible_bridge(
-    node_a: Path, node_b: Path,
-    all_routes: list[Path], skip: frozenset, sample_n: int,
-) -> Optional[tuple[Point, Point, float]]:
-    """Shortest visible bridge between node_a and node_b; None if none exists."""
-    pts_a = _sample_path_evenly(node_a, sample_n)
-    pts_b = _sample_path_evenly(node_b, sample_n)
-    candidates = sorted((vecDist(pa, pb), pa, pb) for pa in pts_a for pb in pts_b)
-    for d, pa, pb in candidates:
-        if _bridge_visible(pa, pb, all_routes, skip):
-            return pa, pb, d
-    return None
-
-
-def _is_interior(route: Path, other_routes: list[Path]) -> bool:
-    """True if route is enclosed inside another route.
-    Tests a point just below the route's bounding box — if that point has odd parity
-    against all other routes, this route is nested inside one of them."""
-    xs = [p[0] for p in route]
-    ys = [p[1] for p in route]
-    test_pt = (sum(xs) / len(xs), min(ys) - 1.0)
-    return bool(_point_parity(test_pt, other_routes))
-
-
-def _weed_bridge(bx0: float, by0: float, bx1: float, by1: float,
-                 routes: list[Path], weed_size: float) -> list[Path]:
-    """MST-based bridges connecting every part to the bbox perimeter.
-    Interiors are subdivided by horizontal lines so no piece exceeds
-    weed_size % of the total bbox area.
+    For each segment the smallest waste strip it could bound is approximated as
+    segment_length × min_clearance, where min_clearance is the minimum distance
+    from any interior sample point on the segment to a design path or the bbox edge.
+    Endpoints are excluded from sampling because adaptive clipping places them exactly
+    on design paths (distance 0), which would falsely remove every segment.
+    Multi-point paths (e.g. the radial inner circle) are passed through unchanged.
     """
-    sample_n = max(16, round(200 / max(1.0, weed_size)))
-    total_area = (bx1 - bx0) * (by1 - by0)
-    target_area = total_area * weed_size / 100.0
-
-    # Separate parts from interiors
-    interior_indices: set[int] = set()
-    for i, route in enumerate(routes):
-        other = [r for j, r in enumerate(routes) if j != i]
-        if _is_interior(route, other):
-            interior_indices.add(i)
-    part_routes = [r for i, r in enumerate(routes) if i not in interior_indices]
-    part_indices = [i for i in range(len(routes)) if i not in interior_indices]
-
-    # MST over parts + perimeter
-    perimeter: Path = [(bx0, by0), (bx1, by0), (bx1, by1), (bx0, by1), (bx0, by0)]
-    nodes: list[Path] = part_routes + [perimeter]
-    np_ = len(part_routes)  # perimeter node index
-
-    mst_candidates: list[tuple[float, int, int, Point, Point]] = []
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            orig_i = part_indices[i] if i < np_ else None
-            orig_j = part_indices[j] if j < np_ else None
-            skip: frozenset = frozenset(x for x in (orig_i, orig_j) if x is not None)
-            result = _closest_visible_bridge(nodes[i], nodes[j], routes, skip, sample_n)
-            if result:
-                pa, pb, d = result
-                mst_candidates.append((d, i, j, pa, pb))
-
-    parent = list(range(len(nodes)))
-
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    bridges: list[Path] = []
-    for d, i, j, pa, pb in sorted(mst_candidates):
-        pi, pj = find(i), find(j)
-        if pi != pj:
-            parent[pi] = pj
-            bridges.append([pa, pb])
-
-    # Subdivide each interior with horizontal lines
-    for i in interior_indices:
-        route = routes[i]
-        xs = [p[0] for p in route]
-        ys = [p[1] for p in route]
-        rx0, rx1 = min(xs), max(xs)
-        ry0, ry1 = min(ys), max(ys)
-        interior_area = (rx1 - rx0) * (ry1 - ry0)
-        n_strips = max(1, round(interior_area / target_area))
-        for k in range(1, n_strips):
-            y = ry0 + k * (ry1 - ry0) / n_strips
-            bridges.append([(rx0, y), (rx1, y)])
-
-    return bridges
+    if weed_min_size <= 0:
+        return segments
+    threshold = bbox_area * weed_min_size / 100.0
+    bbox_boundary: Path = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+    boundaries = list(routes) + [bbox_boundary]
+    result: list[Path] = []
+    for seg in segments:
+        if len(seg) != 2:
+            result.append(seg)
+            continue
+        a, b = seg[0], seg[1]
+        length = vecDist(a, b)
+        min_clearance = float('inf')
+        for i in range(1, 5):          # t = 0.2, 0.4, 0.6, 0.8 — interior only
+            t = i / 5.0
+            p = (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+            for boundary in boundaries:
+                for ra, rb in zip(boundary, boundary[1:]):
+                    d, _ = _point_to_seg_closest(p, ra, rb)
+                    if d < min_clearance:
+                        min_clearance = d
+        if length * min_clearance >= threshold:
+            result.append(seg)
+    return result
 
 
 HPGL_CMDS = {
@@ -926,7 +844,8 @@ class HPGL:
                         margin: float = 2.0, tick_length: float = 5.0,
                         adaptive: bool = True,
                         add_frame: bool = True, frame_distance: float = 1.0,
-                        weed_size: float = 25.0, weed_min_size: float = 0.0) -> None:
+                        weed_size: float = 25.0, weed_small_size: float = 0.0,
+                        weed_min_size: float = 0.0) -> None:
         min_xy, max_xy = self.getBoundingBox()
         mx = mm2hpgl(margin)
         x0, y0 = min_xy[0] - mx, min_xy[1] - mx
@@ -956,8 +875,10 @@ class HPGL:
         n_y = _clamp_n(n_2d, by1 - by0, min_spacing_y, max_spacing_y)
 
         original_routes = self.routes[:]
+        if weed_small_size <= 0:
+            weed_small_size = weed_size / 10.0
         if weed_min_size <= 0:
-            weed_min_size = weed_size / 10.0
+            weed_min_size = weed_small_size / 10.0
 
         dispatch = {
             'grid':       lambda: _weed_grid(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
@@ -967,8 +888,7 @@ class HPGL:
             'diagonal':   lambda: _weed_diagonal(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
             'rombic':     lambda: _weed_rombic(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
             'tick':       lambda: _weed_tick(x0, y0, x1, y1, bx0, by0, bx1, by1, mm2hpgl(tick_length), n_x, n_y),
-            'radial':     lambda: _weed_radial(x0, y0, x1, y1, bx0, by0, bx1, by1, weed_size, weed_min_size, original_routes),
-            'bridge':     lambda: _weed_bridge(bx0, by0, bx1, by1, original_routes, weed_size),
+            'radial':     lambda: _weed_radial(x0, y0, x1, y1, bx0, by0, bx1, by1, weed_size, weed_small_size, original_routes),
         }
         fn = dispatch.get(strategy)
         if fn is None:
@@ -1003,6 +923,11 @@ class HPGL:
                     if len(chain) >= 2:
                         clipped.append(chain)
             new_lines = clipped
+
+        if weed_min_size > 0:
+            bbox_area = (bx1 - bx0) * (by1 - by0)
+            new_lines = _weed_small_piece_filter(
+                new_lines, original_routes, x0, y0, x1, y1, bbox_area, weed_min_size)
 
         self.routes.extend(new_lines)
 
@@ -1085,12 +1010,11 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
             add_frame=not getattr(args, 'no_weed_frame', False),
             frame_distance=getattr(args, 'weed_frame_distance', 1.0) or 1.0,
             weed_size=getattr(args, 'weed_size', 25.0) or 25.0,
+            weed_small_size=getattr(args, 'weed_small_size', 0.0),
             weed_min_size=getattr(args, 'weed_min_size', 0.0),
         )
 
-    reroute = getattr(args, 'reroute', None)
-    if reroute is None and args.magic:
-        reroute = 'xy'
+    reroute = getattr(args, 'reroute', 'xy')
     if reroute == 'xy':
         hpgl_obj.rerouteXY()
     elif reroute == 'nearest':
@@ -1108,7 +1032,8 @@ if __name__ == "__main__":
     parser.add_argument("--mirror", action="store_true", help="Mirror on X-axis for inverted cuts (T-Shirts etc.)")
     parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
     parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, help="Blade offset in mm (default: 0.25, ignored with --pen)")
-    parser.add_argument("--reroute", choices=["xy", "nearest"], help="Reroute paths: xy (boustrophedon) or nearest (greedy)")
+    parser.add_argument("--reroute", choices=["xy", "nearest", "none"], default="xy",
+                        help="Reroute paths: xy (boustrophedon, default), nearest (greedy), none (keep original order)")
     parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
     parser.add_argument("--repeat-y", metavar="N", type=int, default=1, help="Tile N times along Y axis")
     parser.add_argument("--gap", metavar="MM", type=float, default=5.0, help="Gap between tiles in mm for both axes (default: 5)")
@@ -1119,9 +1044,9 @@ if __name__ == "__main__":
     weed_group = parser.add_argument_group("weeding lines")
     weed_group.add_argument("--weed", metavar="STRATEGY",
                             choices=["grid", "horizontal", "vertical", "frame",
-                                     "diagonal", "rombic", "tick", "radial", "bridge"],
+                                     "diagonal", "rombic", "tick", "radial"],
                             help="Add weeding lines (grid, horizontal, vertical, frame, "
-                                 "diagonal, rombic, tick, radial, bridge)")
+                                 "diagonal, rombic, tick, radial)")
     weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0,
                             help="Min spacing between vertical weeding lines in mm (default: 1)")
     weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None,
@@ -1136,8 +1061,10 @@ if __name__ == "__main__":
                             help="Tick/comb tooth length in mm (default: 5)")
     weed_group.add_argument("--weed-size", metavar="PCT", type=float, default=25.0,
                             help="Max waste piece size as %% of bbox area (default: 25)")
+    weed_group.add_argument("--weed-small-size", metavar="PCT", type=float, default=0.0,
+                            help="Radial inner circle area as %% of bbox area (default: weed-size/10)")
     weed_group.add_argument("--weed-min-size", metavar="PCT", type=float, default=0.0,
-                            help="Inner circle area for radial strategy as %% of bbox area (default: weed-size/10)")
+                            help="Remove weeding lines creating waste pieces smaller than PCT%% of bbox (default: weed-small-size/10)")
     weed_group.add_argument("--no-weed-adaptive", action="store_true",
                             help="Disable splitting weeding lines at design intersections")
     weed_group.add_argument("--no-weed-frame", action="store_true",

@@ -17,7 +17,7 @@ What's new
 ----------
 
 **Weeding lines** — after processing, add extra cut lines to the design to help
-remove waste vinyl. Nine strategies are available:
+remove waste vinyl. Eight strategies are available:
 
 | Strategy | Description |
 |----------|-------------|
@@ -28,7 +28,6 @@ remove waste vinyl. Nine strategies are available:
 | `frame` | Concentric equal-area rectangles stepping inward |
 | `tick` | Short inward comb-teeth from each bbox edge |
 | `radial` | Evenly-angled spokes from the bbox centre |
-| `bridge` | MST bridges between visible parts and the perimeter |
 
 Line count is controlled by `--weed-size PCT` (max waste piece size as % of bbox
 area, default 25). All strategies support **adaptive clipping** (default on):
@@ -92,13 +91,14 @@ Send an HPGL file to the plotter:
 | `--mirror` | off | Mirror on X-axis (for inverted cuts, e.g. T-shirts) |
 | `--pen` | off | Disable blade offset compensation (use for pen plotters) |
 | `--blade-offset MM` | `0.25` | Blade trailing offset in mm (ignored with `--pen`) |
-| `--reroute {xy,nearest}` | — | Reroute paths: `xy` = boustrophedon rows, `nearest` = greedy nearest-neighbour |
+| `--reroute {xy,nearest,none}` | `xy` | Reroute paths: `xy` = boustrophedon rows, `nearest` = greedy nearest-neighbour, `none` = keep original order |
 | `--repeat-x N` | `1` | Tile the design N times along the X axis |
 | `--repeat-y N` | `1` | Tile the design N times along the Y axis |
 | `--gap MM` | `5` | Gap between tiles in mm |
-| `--weed STRATEGY` | — | Add weeding lines (grid, horizontal, vertical, diagonal, rombic, frame, tick, radial, bridge) |
+| `--weed STRATEGY` | — | Add weeding lines (grid, horizontal, vertical, diagonal, rombic, frame, tick, radial) |
 | `--weed-size PCT` | `25` | Max waste piece size as % of bbox area |
-| `--weed-min-size PCT` | auto | Inner circle area for `radial` as % of bbox (default: weed-size/10) |
+| `--weed-small-size PCT` | auto | Radial inner circle area as % of bbox (default: weed-size/10) |
+| `--weed-min-size PCT` | auto | Drop weeding lines creating waste pieces smaller than this (default: weed-small-size/10) |
 | `--weed-margin MM` | `2` | Extend weeding lines beyond bbox in mm |
 | `--weed-frame-distance MM` | `1` | Distance of outer frame from bbox |
 | `--no-weed-frame` | — | Suppress the automatic outer frame |
@@ -127,12 +127,14 @@ Process an HPGL file without plotting (convert, optimise, export):
 | `--mirror` | off | Mirror on X-axis |
 | `--pen` | off | Disable blade offset compensation |
 | `--blade-offset MM` | `0.25` | Blade trailing offset in mm (ignored with `--pen`) |
-| `--reroute {xy,nearest}` | — | Reroute paths |
+| `--reroute {xy,nearest,none}` | `xy` | Reroute paths (`xy` default) |
 | `--repeat-x N` | `1` | Tile N times along X |
 | `--repeat-y N` | `1` | Tile N times along Y |
 | `--gap MM` | `5` | Gap between tiles in mm |
 | `--weed STRATEGY` | — | Add weeding lines (see strategies above) |
-| `--weed-edge-count N` | `4` | Lines per bbox edge / frame count / spoke count |
+| `--weed-size PCT` | `25` | Max waste piece size as % of bbox area |
+| `--weed-small-size PCT` | auto | Radial inner circle area as % of bbox (default: weed-size/10) |
+| `--weed-min-size PCT` | auto | Drop weeding lines creating waste pieces smaller than this (default: weed-small-size/10) |
 | `--weed-margin MM` | `2` | Extend weeding lines beyond bbox in mm |
 | `--weed-frame-distance MM` | `1` | Distance of outer frame from bbox |
 | `--no-weed-frame` | — | Suppress the automatic outer frame |
