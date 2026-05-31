@@ -680,11 +680,18 @@ class HPGL:
 
     def scaleToWidth(self, width: float) -> None:
         new_width = mm2hpgl(width)
-
         self.fit()
         _, max_xy = self.getBoundingBox()
         x, y = max_xy
         factor = new_width / float(x)
+        self.scale(factor)
+
+    def scaleToHeight(self, height: float) -> None:
+        new_height = mm2hpgl(height)
+        self.fit()
+        _, max_xy = self.getBoundingBox()
+        x, y = max_xy
+        factor = new_height / float(y)
         self.scale(factor)
 
     def exportSVG(self, filename: str) -> None:
@@ -732,6 +739,24 @@ class HPGL:
         min_xy, max_xy = self.getBoundingBox()
         self.scale(1, -1)
         self.move(0, max_xy[1])
+
+    def rotate(self, degrees: float) -> None:
+        angle = degrees % 360
+        if angle == 0:
+            return
+        elif angle == 90:
+            self.operateXY(lambda x, y: (-y, x))
+        elif angle == 180:
+            self.mirrorX()
+            self.mirrorY()
+            return  # mirrorX/mirrorY translate themselves
+        elif angle == 270:
+            self.operateXY(lambda x, y: (y, -x))
+        else:
+            cos_a = math.cos(math.radians(degrees))
+            sin_a = math.sin(math.radians(degrees))
+            self.operateXY(lambda x, y: (x * cos_a - y * sin_a, x * sin_a + y * cos_a))
+        self.fit()
 
     def addMargin(self, x: float, y: float) -> None:
         self.move(mm2hpgl(x), mm2hpgl(y))
@@ -946,26 +971,33 @@ class HPGL:
 def apply_args(hpgl_obj: HPGL, args) -> None:
     blade_optimize = False
     optimize = False
-    rotate180 = False
     mirror = args.mirror
+    flip = getattr(args, 'flip', False)
 
     if args.magic:
         blade_optimize = True
         optimize = True
-        rotate180 = True
+
+    rotate = getattr(args, 'rotate', None)
 
     if args.width is not None:
         hpgl_obj.scaleToWidth(args.width)
+    elif getattr(args, 'height', None) is not None:
+        hpgl_obj.scaleToHeight(args.height)
+    elif getattr(args, 'scale', None) is not None:
+        hpgl_obj.scale(args.scale)
 
     if getattr(args, 'pen', False):
         blade_optimize = False
 
-    if rotate180:
-        hpgl_obj.mirrorX()
-        hpgl_obj.mirrorY()
+    if rotate is not None:
+        hpgl_obj.rotate(rotate)
 
     if mirror:
         hpgl_obj.mirrorX()
+
+    if flip:
+        hpgl_obj.mirrorY()
 
     if optimize:
         hpgl_obj.optimize()
@@ -1028,8 +1060,13 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--preview", type=str, help="Generate SVG preview file", metavar="SVG")
     parser.add_argument("-o", "--output", type=str, help="Output HPGL file", metavar="HPGL")
     parser.add_argument("-m", "--magic", action="store_true", help="Enable auto-optimize")
-    parser.add_argument("-w", "--width", metavar="WIDTH", type=int, help="Scale to width in mm")
+    scale_group = parser.add_mutually_exclusive_group()
+    scale_group.add_argument("-w", "--width", metavar="MM", type=float, help="Scale to width in mm")
+    scale_group.add_argument("-H", "--height", metavar="MM", type=float, help="Scale to height in mm")
+    scale_group.add_argument("-s", "--scale", metavar="FACTOR", type=float, help="Scale by factor (e.g. 0.5 for half size)")
     parser.add_argument("--mirror", action="store_true", help="Mirror on X-axis for inverted cuts (T-Shirts etc.)")
+    parser.add_argument("--flip", action="store_true", help="Flip on Y-axis (mirror top to bottom)")
+    parser.add_argument("--rotate", metavar="DEG", type=float, help="Rotate design by angle in degrees (counter-clockwise)")
     parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
     parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, help="Blade offset in mm (default: 0.25, ignored with --pen)")
     parser.add_argument("--reroute", choices=["xy", "nearest", "none"], default="xy",
