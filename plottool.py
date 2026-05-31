@@ -29,6 +29,7 @@ parser.add_argument("--mirror", action="store_true", help="Mirror on X-axis for 
 parser.add_argument("--flip", action="store_true", help="Flip on Y-axis (mirror top to bottom)")
 parser.add_argument("--rotate", metavar="DEG", type=float, help="Rotate design by angle in degrees (counter-clockwise)")
 parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
+parser.add_argument("--no-blade-prep", action="store_true", help="Skip the 2mm prep cut at origin used to seat the blade")
 parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, help="Blade offset in mm (default: 0.25, ignored with --pen)")
 parser.add_argument("--reroute", choices=["xy", "nearest", "none"], default="xy",
                     help="Reroute paths: xy (boustrophedon, default), nearest (greedy), none (keep original order)")

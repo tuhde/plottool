@@ -758,6 +758,11 @@ class HPGL:
             self.operateXY(lambda x, y: (x * cos_a - y * sin_a, x * sin_a + y * cos_a))
         self.fit()
 
+    def bladePrepCut(self, length: float = 2.0) -> None:
+        # A short cut at the origin seats the blade in the correct direction
+        # before the actual design begins.
+        self.routes.insert(0, [(0, 0), (mm2hpgl(length), 0)])
+
     def addMargin(self, x: float, y: float) -> None:
         self.move(mm2hpgl(x), mm2hpgl(y))
 
@@ -1052,6 +1057,9 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
     elif reroute == 'nearest':
         hpgl_obj.rerouteNearest()
 
+    if not getattr(args, 'no_blade_prep', False):
+        hpgl_obj.bladePrepCut()
+
 
 if __name__ == "__main__":
     import argparse
@@ -1069,6 +1077,7 @@ if __name__ == "__main__":
     parser.add_argument("--rotate", metavar="DEG", type=float, help="Rotate design by angle in degrees (counter-clockwise)")
     parser.add_argument("--pen", action="store_true", help="Disable cut optimization for rotating knifes")
     parser.add_argument("--blade-offset", metavar="MM", type=float, default=0.25, help="Blade offset in mm (default: 0.25, ignored with --pen)")
+    parser.add_argument("--no-blade-prep", action="store_true", help="Skip the 2mm prep cut at origin used to seat the blade")
     parser.add_argument("--reroute", choices=["xy", "nearest", "none"], default="xy",
                         help="Reroute paths: xy (boustrophedon, default), nearest (greedy), none (keep original order)")
     parser.add_argument("--repeat-x", metavar="N", type=int, default=1, help="Tile N times along X axis")
