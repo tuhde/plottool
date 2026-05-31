@@ -462,16 +462,20 @@ def _weed_small_piece_filter(
             continue
         a, b = seg[0], seg[1]
         length = vecDist(a, b)
-        min_clearance = float('inf')
-        for i in range(1, 5):          # t = 0.2, 0.4, 0.6, 0.8 — interior only
-            t = i / 5.0
+        total_clearance = 0.0
+        n_samples = 4
+        for i in range(1, n_samples + 1):   # t = 0.2, 0.4, 0.6, 0.8 — interior only
+            t = i / (n_samples + 1)
             p = (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+            pt_clearance = float('inf')
             for boundary in boundaries:
                 for ra, rb in zip(boundary, boundary[1:]):
                     d, _ = _point_to_seg_closest(p, ra, rb)
-                    if d < min_clearance:
-                        min_clearance = d
-        if length * min_clearance >= threshold:
+                    if d < pt_clearance:
+                        pt_clearance = d
+            total_clearance += pt_clearance
+        mean_clearance = total_clearance / n_samples
+        if length * mean_clearance >= threshold:
             result.append(seg)
     return result
 
