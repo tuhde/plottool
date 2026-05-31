@@ -378,6 +378,12 @@ def _weed_radial(x0: float, y0: float, x1: float, y1: float,
                 enclosing_routes = []
                 inner_r = math.sqrt(W * H * weed_small_size / (100.0 * math.pi))
                 circle_r = inner_r
+        else:
+            # Centre is in open waste (e.g. gap between tiles with even repeat count).
+            # No route encloses it, so draw the inner circle so spokes don't all
+            # converge at one uncut point.
+            inner_r = math.sqrt(W * H * weed_small_size / (100.0 * math.pi))
+            circle_r = inner_r
 
     effective_area = W * H - math.pi * inner_r ** 2
     target_area = W * H * weed_size / 100.0
