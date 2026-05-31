@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import re
 import math
+import os
+import sys
+import configparser
 from typing import Callable, Optional
 
 
@@ -973,6 +976,55 @@ class HPGL:
             ]
 
 
+def load_config(profile: str = None) -> dict:
+    config = configparser.ConfigParser()
+    config.read([os.path.expanduser('~/.plottoolrc'), 'plottool.conf'])
+    result = {}
+    if 'default' in config:
+        result.update(config['default'])
+    if profile:
+        if profile in config:
+            result.update(config[profile])
+        else:
+            print(f"Warning: config profile '{profile}' not found", file=sys.stderr)
+    return result
+
+
+def apply_config_to_parser(parser, config: dict) -> None:
+    cli_specified = {
+        action.dest
+        for action in parser._actions
+        for opt in action.option_strings
+        if opt in sys.argv[1:]
+    }
+    # If any member of a mutually exclusive group is on the CLI,
+    # skip all members of that group from config to avoid silent conflicts.
+    excluded = set()
+    for group in parser._mutually_exclusive_groups:
+        group_dests = {a.dest for a in group._group_actions}
+        if group_dests & cli_specified:
+            excluded |= group_dests
+
+    skip = cli_specified | excluded
+    action_map = {a.dest: a for a in parser._actions}
+    converted = {}
+    for key, value in config.items():
+        dest = key.replace('-', '_')
+        if dest not in action_map or dest in skip:
+            continue
+        action = action_map[dest]
+        if action.const is True:  # store_true
+            converted[dest] = value.lower() in ('true', 'yes', '1', 'on')
+        elif action.type is not None:
+            try:
+                converted[dest] = action.type(value)
+            except (ValueError, TypeError):
+                print(f"Warning: invalid config value for '{key}': {value!r}", file=sys.stderr)
+        else:
+            converted[dest] = value
+    parser.set_defaults(**converted)
+
+
 def apply_args(hpgl_obj: HPGL, args) -> None:
     blade_optimize = False
     optimize = False
@@ -1065,6 +1117,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser("HPGL modification/optimization tool")
     parser.add_argument("file", type=str, help="the HPGL-file to edit")
+    parser.add_argument("--profile", metavar="NAME", help="Config profile to load from ~/.plottoolrc or plottool.conf")
     parser.add_argument("-p", "--preview", type=str, help="Generate SVG preview file", metavar="SVG")
     parser.add_argument("-o", "--output", type=str, help="Output HPGL file", metavar="HPGL")
     parser.add_argument("-m", "--magic", action="store_true", help="Enable auto-optimize")
@@ -1117,6 +1170,11 @@ if __name__ == "__main__":
                             help="Disable the outer frame rectangle around the bbox")
     weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, default=1.0,
                             help="Distance of outer frame from bbox in mm (default: 1)")
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument('--profile', default=None)
+    pre_args, _ = pre_parser.parse_known_args()
+    apply_config_to_parser(parser, load_config(pre_args.profile))
+
     args = parser.parse_args()
 
     HPGLinput = HPGL(args.file)

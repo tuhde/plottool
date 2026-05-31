@@ -1,0 +1,20 @@
+# plottool config file
+# Copy to ~/.plottoolrc (global) or plottool.conf (per-directory).
+# Settings in [default] always apply. Use --profile NAME to also apply a
+# named section on top. Command-line args always override config values.
+
+[default]
+magic = true
+blade-offset = 0.25
+reroute = xy
+
+[vinyl]
+width = 300
+
+[shirt]
+mirror = true
+width = 300
+
+[pen]
+pen = true
+no-blade-prep = true

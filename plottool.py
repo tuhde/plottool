@@ -5,7 +5,7 @@ __author__ = "doommaster"
 
 import sys
 import argparse
-from hpgl import HPGL, apply_args
+from hpgl import HPGL, apply_args, load_config, apply_config_to_parser
 try:
     import serial
 except ImportError:
@@ -16,6 +16,7 @@ except ImportError:
 
 
 parser = argparse.ArgumentParser(description="Process all arguments ")
+parser.add_argument("--profile", metavar="NAME", help="Config profile to load from ~/.plottoolrc or plottool.conf")
 parser.add_argument("-p", "--port", metavar="PORT", type=str, help="Serial port (default: /dev/ttyUSB0)", default="/dev/ttyUSB0")
 parser.add_argument("-b", "--baud", metavar="BAUD", type=int, help="Serial baud rate (default: 9600)", default=9600)
 parser.add_argument("-m", "--magic", action="store_true", help="Enable auto-optimize")
@@ -71,6 +72,11 @@ weed_group.add_argument("--no-weed-frame", action="store_true",
                         help="Disable the outer frame rectangle around the bbox")
 weed_group.add_argument("--weed-frame-distance", metavar="MM", type=float, default=1.0,
                         help="Distance of outer frame from bbox in mm (default: 1)")
+pre_parser = argparse.ArgumentParser(add_help=False)
+pre_parser.add_argument('--profile', default=None)
+pre_args, _ = pre_parser.parse_known_args()
+apply_config_to_parser(parser, load_config(pre_args.profile))
+
 args = parser.parse_args()
 
 try:
