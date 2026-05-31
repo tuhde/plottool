@@ -17,7 +17,7 @@ What's new
 ----------
 
 **Weeding lines** — after processing, add extra cut lines to the design to help
-remove waste vinyl. Eight strategies are available:
+remove waste vinyl. Nine strategies are available:
 
 | Strategy | Description |
 |----------|-------------|
@@ -25,17 +25,17 @@ remove waste vinyl. Eight strategies are available:
 | `horizontal` / `vertical` | Single-axis grid lines |
 | `diagonal` | 45° lines across the bbox |
 | `rombic` | Both diagonal families (diamond grid) |
-| `frame` | Concentric rectangles stepping inward from the bbox edge to the centre |
+| `frame` | Concentric equal-area rectangles stepping inward |
 | `tick` | Short inward comb-teeth from each bbox edge |
-| `radial` | Spokes radiating from the bbox centre |
+| `radial` | Evenly-angled spokes from the bbox centre |
+| `bridge` | MST bridges between visible parts and the perimeter |
 
-All strategies support **adaptive clipping** (default on): weeding lines are split
-at intersections with existing design paths and only the blank-area segments are
-kept, avoiding double-cuts through closed design regions.
-An outer frame rectangle (default 1 mm from the bbox) is added automatically.
+Line count is controlled by `--weed-size PCT` (max waste piece size as % of bbox
+area, default 25). All strategies support **adaptive clipping** (default on):
+weeding lines are split at design intersections and only waste-area segments are
+kept. An outer frame rectangle (default 1 mm from the bbox) is added automatically.
 
-Use `--weed STRATEGY` with `--weed-edge-count`, `--weed-margin`,
-`--weed-frame-distance`, etc. to control the output (see `--help` for all flags).
+See [WEEDING_LINES.md](WEEDING_LINES.md) for full strategy and parameter details.
 
 **Improved preview** — the preview window now shows:
 - Direction arrows on cut paths, travel moves, and the return-to-origin line
@@ -96,8 +96,9 @@ Send an HPGL file to the plotter:
 | `--repeat-x N` | `1` | Tile the design N times along the X axis |
 | `--repeat-y N` | `1` | Tile the design N times along the Y axis |
 | `--gap MM` | `5` | Gap between tiles in mm |
-| `--weed STRATEGY` | — | Add weeding lines (grid, horizontal, vertical, diagonal, rombic, frame, tick, radial) |
-| `--weed-edge-count N` | `4` | Lines per bbox edge / frame count / spoke count |
+| `--weed STRATEGY` | — | Add weeding lines (grid, horizontal, vertical, diagonal, rombic, frame, tick, radial, bridge) |
+| `--weed-size PCT` | `25` | Max waste piece size as % of bbox area |
+| `--weed-min-size PCT` | auto | Inner circle area for `radial` as % of bbox (default: weed-size/10) |
 | `--weed-margin MM` | `2` | Extend weeding lines beyond bbox in mm |
 | `--weed-frame-distance MM` | `1` | Distance of outer frame from bbox |
 | `--no-weed-frame` | — | Suppress the automatic outer frame |

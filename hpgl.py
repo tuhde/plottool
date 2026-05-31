@@ -245,17 +245,23 @@ def _weed_grid(x0: float, y0: float, x1: float, y1: float,
            _weed_vertical(x0, y0, x1, y1, bx0, bx1, n_x)
 
 
-def _weed_frame(bx0: float, by0: float, bx1: float, by1: float, n: int) -> list[Path]:
-    """n-1 concentric rectangular frames stepping inward from bbox edge to centre.
-    The bbox-to-centre distance is divided into n equal parts; frames sit at i=1..n-1."""
+def _weed_frame(bx0: float, by0: float, bx1: float, by1: float, weed_size: float) -> list[Path]:
+    """Concentric rectangular frames with equal-area rings.
+    Frame k is scaled by s_k = sqrt(1 - k·weed_size/100) from the bbox centre,
+    so each ring has area exactly weed_size% of the total bbox area."""
     lines = []
     w = bx1 - bx0
     h = by1 - by0
-    for i in range(1, n):
-        xl = bx0 + i * w / (2 * n)
-        xr = bx1 - i * w / (2 * n)
-        yb = by0 + i * h / (2 * n)
-        yt = by1 - i * h / (2 * n)
+    k = 1
+    while True:
+        s2 = 1.0 - k * weed_size / 100.0
+        if s2 <= 0.0:
+            break
+        s = math.sqrt(s2)
+        xl = bx0 + w * (1.0 - s) / 2.0
+        xr = bx1 - w * (1.0 - s) / 2.0
+        yb = by0 + h * (1.0 - s) / 2.0
+        yt = by1 - h * (1.0 - s) / 2.0
         if xl >= xr or yb >= yt:
             break
         lines += [
@@ -264,6 +270,7 @@ def _weed_frame(bx0: float, by0: float, bx1: float, by1: float, n: int) -> list[
             [(xr, yt), (xl, yt)],
             [(xl, yt), (xl, yb)],
         ]
+        k += 1
     return lines
 
 
@@ -339,22 +346,207 @@ def _ray_bbox_intersect(cx: float, cy: float, dx: float, dy: float,
 
 def _weed_radial(x0: float, y0: float, x1: float, y1: float,
                  bx0: float, by0: float, bx1: float, by1: float,
-                 n_x: int, n_y: int) -> list[Path]:
-    """Spokes from the bbox centre to the extended bbox edges.
-    n_x spokes per horizontal edge, n_y per vertical edge, plus the 4 corners."""
+                 weed_size: float, weed_min_size: float,
+                 routes: list[Path]) -> list[Path]:
+    """Spokes from the bbox centre at evenly-distributed angles (360°/n_spokes apart).
+
+    If the centre lies in waste (not inside a part), all spokes would converge
+    at one uncut spot which may tear the vinyl.  In that case a small inner circle
+    of area weed_min_size% of bbox is added and spokes run from the circle boundary
+    to the perimeter instead of from the centre.
+    """
     cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
-    lines = []
-    for px, py in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]:
-        lines.append([(cx, cy), (px, py)])
-    for i in range(1, n_x):
-        px = x0 + i * (x1 - x0) / n_x
-        lines.append([(cx, cy), (px, y0)])
-        lines.append([(cx, cy), (px, y1)])
-    for i in range(1, n_y):
-        py = y0 + i * (y1 - y0) / n_y
-        lines.append([(cx, cy), (x0, py)])
-        lines.append([(cx, cy), (x1, py)])
+    W, H = bx1 - bx0, by1 - by0
+
+    center_in_part = bool(_point_parity((cx, cy), routes))
+    enclosing_routes: list[Path] = []
+    inner_r = 0.0
+    circle_r = 0.0
+
+    if not center_in_part:
+        enclosing_routes = [r for r in routes if _point_parity((cx, cy), [r])]
+        if enclosing_routes:
+            interior_bbox_area = min(
+                (max(p[0] for p in r) - min(p[0] for p in r)) *
+                (max(p[1] for p in r) - min(p[1] for p in r))
+                for r in enclosing_routes
+            )
+            if interior_bbox_area >= W * H * weed_size / 100.0:
+                enclosing_routes = []
+                inner_r = math.sqrt(W * H * weed_min_size / (100.0 * math.pi))
+                circle_r = inner_r
+
+    effective_area = W * H - math.pi * inner_r ** 2
+    target_area = W * H * weed_size / 100.0
+    n_spokes = max(1, round(effective_area / target_area))
+    lines: list[Path] = []
+
+    for i in range(n_spokes):
+        angle = 2 * math.pi * i / n_spokes
+        dx, dy = math.cos(angle), math.sin(angle)
+        ep = _ray_bbox_intersect(cx, cy, dx, dy, x0, y0, x1, y1)
+        if ep is None:
+            continue
+        if inner_r > 0:
+            start: Point = (cx + inner_r * dx, cy + inner_r * dy)
+        elif enclosing_routes:
+            t_min = 1.0
+            for route in enclosing_routes:
+                for a, b in zip(route, route[1:]):
+                    t = _seg_intersect_t((cx, cy), ep, a, b)
+                    if t is not None and 1e-9 < t < t_min:
+                        t_min = t
+            start = (cx + t_min * (ep[0] - cx), cy + t_min * (ep[1] - cy))
+        else:
+            start = (cx, cy)
+        lines.append([start, ep])
+
+    if circle_r > 0:
+        n = max(32, round(math.pi * circle_r / 20))
+        pts = [
+            (cx + circle_r * math.cos(2 * math.pi * i / n),
+             cy + circle_r * math.sin(2 * math.pi * i / n))
+            for i in range(n)
+        ]
+        pts.append(pts[0])
+        lines.append(pts)
+
     return lines
+
+
+def _point_to_seg_closest(p: Point, a: Point, b: Point) -> tuple[float, Point]:
+    """Closest point on segment a→b to p, and the distance."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    len2 = dx * dx + dy * dy
+    if len2 < 1e-12:
+        return vecDist(p, a), a
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2))
+    closest = (a[0] + t * dx, a[1] + t * dy)
+    return vecDist(p, closest), closest
+
+
+def _sample_path_evenly(route: Path, n: int) -> list[Point]:
+    """n points evenly spaced by arc-length along the polyline."""
+    if n <= 1:
+        return [route[0]]
+    lengths = [0.0]
+    for a, b in zip(route, route[1:]):
+        lengths.append(lengths[-1] + vecDist(a, b))
+    total = lengths[-1]
+    if total < 1e-10:
+        return [route[0]] * n
+    result = []
+    for i in range(n):
+        target = i * total / (n - 1)
+        for k in range(len(lengths) - 1):
+            if lengths[k + 1] >= target:
+                seg_len = lengths[k + 1] - lengths[k]
+                s = (target - lengths[k]) / seg_len if seg_len > 1e-10 else 0.0
+                a, b = route[k], route[k + 1]
+                result.append((a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1])))
+                break
+    return result
+
+
+def _bridge_visible(pa: Point, pb: Point, routes: list[Path], skip: frozenset) -> bool:
+    """True if segment pa→pb doesn't intersect any route not in skip (by index)."""
+    for i, route in enumerate(routes):
+        if i in skip:
+            continue
+        for a, b in zip(route, route[1:]):
+            if _seg_intersect_t(pa, pb, a, b) is not None:
+                return False
+    return True
+
+
+def _closest_visible_bridge(
+    node_a: Path, node_b: Path,
+    all_routes: list[Path], skip: frozenset, sample_n: int,
+) -> Optional[tuple[Point, Point, float]]:
+    """Shortest visible bridge between node_a and node_b; None if none exists."""
+    pts_a = _sample_path_evenly(node_a, sample_n)
+    pts_b = _sample_path_evenly(node_b, sample_n)
+    candidates = sorted((vecDist(pa, pb), pa, pb) for pa in pts_a for pb in pts_b)
+    for d, pa, pb in candidates:
+        if _bridge_visible(pa, pb, all_routes, skip):
+            return pa, pb, d
+    return None
+
+
+def _is_interior(route: Path, other_routes: list[Path]) -> bool:
+    """True if route is enclosed inside another route.
+    Tests a point just below the route's bounding box — if that point has odd parity
+    against all other routes, this route is nested inside one of them."""
+    xs = [p[0] for p in route]
+    ys = [p[1] for p in route]
+    test_pt = (sum(xs) / len(xs), min(ys) - 1.0)
+    return bool(_point_parity(test_pt, other_routes))
+
+
+def _weed_bridge(bx0: float, by0: float, bx1: float, by1: float,
+                 routes: list[Path], weed_size: float) -> list[Path]:
+    """MST-based bridges connecting every part to the bbox perimeter.
+    Interiors are subdivided by horizontal lines so no piece exceeds
+    weed_size % of the total bbox area.
+    """
+    sample_n = max(16, round(200 / max(1.0, weed_size)))
+    total_area = (bx1 - bx0) * (by1 - by0)
+    target_area = total_area * weed_size / 100.0
+
+    # Separate parts from interiors
+    interior_indices: set[int] = set()
+    for i, route in enumerate(routes):
+        other = [r for j, r in enumerate(routes) if j != i]
+        if _is_interior(route, other):
+            interior_indices.add(i)
+    part_routes = [r for i, r in enumerate(routes) if i not in interior_indices]
+    part_indices = [i for i in range(len(routes)) if i not in interior_indices]
+
+    # MST over parts + perimeter
+    perimeter: Path = [(bx0, by0), (bx1, by0), (bx1, by1), (bx0, by1), (bx0, by0)]
+    nodes: list[Path] = part_routes + [perimeter]
+    np_ = len(part_routes)  # perimeter node index
+
+    mst_candidates: list[tuple[float, int, int, Point, Point]] = []
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            orig_i = part_indices[i] if i < np_ else None
+            orig_j = part_indices[j] if j < np_ else None
+            skip: frozenset = frozenset(x for x in (orig_i, orig_j) if x is not None)
+            result = _closest_visible_bridge(nodes[i], nodes[j], routes, skip, sample_n)
+            if result:
+                pa, pb, d = result
+                mst_candidates.append((d, i, j, pa, pb))
+
+    parent = list(range(len(nodes)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    bridges: list[Path] = []
+    for d, i, j, pa, pb in sorted(mst_candidates):
+        pi, pj = find(i), find(j)
+        if pi != pj:
+            parent[pi] = pj
+            bridges.append([pa, pb])
+
+    # Subdivide each interior with horizontal lines
+    for i in interior_indices:
+        route = routes[i]
+        xs = [p[0] for p in route]
+        ys = [p[1] for p in route]
+        rx0, rx1 = min(xs), max(xs)
+        ry0, ry1 = min(ys), max(ys)
+        interior_area = (rx1 - rx0) * (ry1 - ry0)
+        n_strips = max(1, round(interior_area / target_area))
+        for k in range(1, n_strips):
+            y = ry0 + k * (ry1 - ry0) / n_strips
+            bridges.append([(rx0, y), (rx1, y)])
+
+    return bridges
 
 
 HPGL_CMDS = {
@@ -728,12 +920,13 @@ class HPGL:
                 self.routes.extend(map(lambda a: a[1], sorted(row, reverse=reverse)))
                 reverse = not reverse
 
-    def addWeedingLines(self, strategy: str = 'grid', edge_count: int = 4,
+    def addWeedingLines(self, strategy: str = 'grid',
                         min_spacing_x: float = 1.0, max_spacing_x: float = math.inf,
                         min_spacing_y: float = 1.0, max_spacing_y: float = math.inf,
                         margin: float = 2.0, tick_length: float = 5.0,
                         adaptive: bool = True,
-                        add_frame: bool = True, frame_distance: float = 1.0) -> None:
+                        add_frame: bool = True, frame_distance: float = 1.0,
+                        weed_size: float = 25.0, weed_min_size: float = 0.0) -> None:
         min_xy, max_xy = self.getBoundingBox()
         mx = mm2hpgl(margin)
         x0, y0 = min_xy[0] - mx, min_xy[1] - mx
@@ -745,6 +938,11 @@ class HPGL:
         if not hasattr(self, '_design_bbox'):
             self._design_bbox = (min_xy, max_xy)
 
+        # 1D strategies: each strip ≤ weed_size% of total area  →  n = ⌈100/weed_size⌉
+        # 2D strategies: each cell ≤ weed_size% of total area   →  n = ⌈√(100/weed_size)⌉
+        n_1d = max(1, math.ceil(100.0 / weed_size))
+        n_2d = max(1, math.ceil(math.sqrt(100.0 / weed_size)))
+
         def _clamp_n(n, size, min_sp, max_sp):
             if size <= 0:
                 return 1
@@ -754,20 +952,23 @@ class HPGL:
                 n = max(n, math.ceil(size / mm2hpgl(max_sp)))
             return max(n, 1)
 
-        n_x = _clamp_n(edge_count, bx1 - bx0, min_spacing_x, max_spacing_x)
-        n_y = _clamp_n(edge_count, by1 - by0, min_spacing_y, max_spacing_y)
+        n_x = _clamp_n(n_2d, bx1 - bx0, min_spacing_x, max_spacing_x)
+        n_y = _clamp_n(n_2d, by1 - by0, min_spacing_y, max_spacing_y)
 
         original_routes = self.routes[:]
+        if weed_min_size <= 0:
+            weed_min_size = weed_size / 10.0
 
         dispatch = {
             'grid':       lambda: _weed_grid(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
-            'horizontal': lambda: _weed_horizontal(x0, y0, x1, y1, by0, by1, n_y),
-            'vertical':   lambda: _weed_vertical(x0, y0, x1, y1, bx0, bx1, n_x),
-            'frame':      lambda: _weed_frame(bx0, by0, bx1, by1, edge_count),
+            'horizontal': lambda: _weed_horizontal(x0, y0, x1, y1, by0, by1, n_1d),
+            'vertical':   lambda: _weed_vertical(x0, y0, x1, y1, bx0, bx1, n_1d),
+            'frame':      lambda: _weed_frame(bx0, by0, bx1, by1, weed_size),
             'diagonal':   lambda: _weed_diagonal(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
             'rombic':     lambda: _weed_rombic(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
             'tick':       lambda: _weed_tick(x0, y0, x1, y1, bx0, by0, bx1, by1, mm2hpgl(tick_length), n_x, n_y),
-            'radial':     lambda: _weed_radial(x0, y0, x1, y1, bx0, by0, bx1, by1, n_x, n_y),
+            'radial':     lambda: _weed_radial(x0, y0, x1, y1, bx0, by0, bx1, by1, weed_size, weed_min_size, original_routes),
+            'bridge':     lambda: _weed_bridge(bx0, by0, bx1, by1, original_routes, weed_size),
         }
         fn = dispatch.get(strategy)
         if fn is None:
@@ -778,9 +979,29 @@ class HPGL:
         if adaptive:
             clipped = []
             for seg in new_lines:
-                for a, b in _adaptive_clip(seg[0], seg[-1], original_routes):
-                    if vecDist(a, b) > 1.0:
-                        clipped.append([a, b])
+                if len(seg) == 2:
+                    for a, b in _adaptive_clip(seg[0], seg[1], original_routes):
+                        if vecDist(a, b) > 1.0:
+                            clipped.append([a, b])
+                else:
+                    # Multi-point polyline: clip each segment and chain consecutive kept pieces.
+                    chain: list[Point] = []
+                    for i in range(len(seg) - 1):
+                        sub = _adaptive_clip(seg[i], seg[i + 1], original_routes)
+                        for a, b in sub:
+                            if vecDist(a, b) <= 1.0:
+                                continue
+                            if chain and vecDist(chain[-1], a) < 1.0:
+                                chain.append(b)
+                            else:
+                                if len(chain) >= 2:
+                                    clipped.append(chain)
+                                chain = [a, b]
+                        if not sub and chain:
+                            clipped.append(chain)
+                            chain = []
+                    if len(chain) >= 2:
+                        clipped.append(chain)
             new_lines = clipped
 
         self.routes.extend(new_lines)
@@ -850,7 +1071,6 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
     if weed:
         hpgl_obj.addWeedingLines(
             strategy=weed,
-            edge_count=getattr(args, 'weed_edge_count', 4) or 4,
             min_spacing_x=getattr(args, 'weed_min_x', 1.0) or 1.0,
             max_spacing_x=getattr(args, 'weed_max_x', None) or float('inf'),
             min_spacing_y=getattr(args, 'weed_min_y', 1.0) or 1.0,
@@ -860,6 +1080,8 @@ def apply_args(hpgl_obj: HPGL, args) -> None:
             adaptive=not getattr(args, 'no_weed_adaptive', False),
             add_frame=not getattr(args, 'no_weed_frame', False),
             frame_distance=getattr(args, 'weed_frame_distance', 1.0) or 1.0,
+            weed_size=getattr(args, 'weed_size', 25.0) or 25.0,
+            weed_min_size=getattr(args, 'weed_min_size', 0.0),
         )
 
 
@@ -881,11 +1103,9 @@ if __name__ == "__main__":
     weed_group = parser.add_argument_group("weeding lines")
     weed_group.add_argument("--weed", metavar="STRATEGY",
                             choices=["grid", "horizontal", "vertical", "frame",
-                                     "diagonal", "rombic", "tick", "radial"],
+                                     "diagonal", "rombic", "tick", "radial", "bridge"],
                             help="Add weeding lines (grid, horizontal, vertical, frame, "
-                                 "diagonal, rombic, tick, radial)")
-    weed_group.add_argument("--weed-edge-count", metavar="N", type=int, default=4,
-                            help="Number of segments per bbox edge (default: 4)")
+                                 "diagonal, rombic, tick, radial, bridge)")
     weed_group.add_argument("--weed-min-x", metavar="MM", type=float, default=1.0,
                             help="Min spacing between vertical weeding lines in mm (default: 1)")
     weed_group.add_argument("--weed-max-x", metavar="MM", type=float, default=None,
@@ -898,6 +1118,10 @@ if __name__ == "__main__":
                             help="Extend weeding lines beyond bbox in mm (default: 2)")
     weed_group.add_argument("--weed-tick-length", metavar="MM", type=float, default=5.0,
                             help="Tick/comb tooth length in mm (default: 5)")
+    weed_group.add_argument("--weed-size", metavar="PCT", type=float, default=25.0,
+                            help="Max waste piece size as %% of bbox area (default: 25)")
+    weed_group.add_argument("--weed-min-size", metavar="PCT", type=float, default=0.0,
+                            help="Inner circle area for radial strategy as %% of bbox area (default: weed-size/10)")
     weed_group.add_argument("--no-weed-adaptive", action="store_true",
                             help="Disable splitting weeding lines at design intersections")
     weed_group.add_argument("--no-weed-frame", action="store_true",
