@@ -7,7 +7,7 @@ name = "plottool"
 version = "0.1.0"
 description = "HPGL plotter/cutter tool with serial port support, path optimization, blade offset compensation, preview, and weeding lines"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Till Uhde", email = "till@uhde.com" },
 ]
@@ -19,8 +19,7 @@ dependencies = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+"Operating System :: OS Independent",
     "Topic :: Utilities",
 ]
 
