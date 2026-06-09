@@ -10,6 +10,8 @@ https://stratum0.org/wiki/Cogi_CT-630
 
 Also works on macOS, but less reliably — prepare for occasional job cancellation.
 
+> Forked from [stratum0/plottool](https://github.com/stratum0/plottool).
+
 > This project is being actively extended with the help of
 > [Claude Code](https://claude.ai/code) (Anthropic AI).
 
